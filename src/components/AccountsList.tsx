@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, getAccountBalance } from "../db/database";
 import { formatCurrency, cn, savePDF } from "../lib/utils";
-import { Plus, Wallet, CreditCard, Banknote, Landmark, Trash2, X, ArrowUpRight, ArrowDownLeft, Pencil, Download, ExternalLink, ArrowLeftRight, Loader2 } from "lucide-react";
+import { Plus, Wallet, CreditCard, Banknote, Landmark, Trash2, X, ArrowUpRight, ArrowDownLeft, Pencil, Download, ExternalLink, ArrowLeftRight, Loader2, ChevronRight } from "lucide-react";
 import TransactionsList from "./TransactionsList";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -78,10 +78,18 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
   const accounts = useLiveQuery(async () => {
     const list = await db.accounts.where("isDeleted").equals(0).toArray();
     const accountsWithBalance = await Promise.all(
-      list.map(async (acc) => ({
-        ...acc,
-        currentBalance: (acc.initialBalance || 0) + await getAccountBalance(acc.id!, settings?.endDate)
-      }))
+      list.map(async (acc) => {
+        const balance = (acc.initialBalance || 0) + await getAccountBalance(acc.id!, settings?.endDate);
+        let effectiveType = acc.type;
+        if (acc.type === "ASSET" || acc.type === "LIABILITY") {
+          effectiveType = balance >= 0 ? "ASSET" : "LIABILITY";
+        }
+        return {
+          ...acc,
+          currentBalance: balance,
+          effectiveType
+        };
+      })
     );
     return accountsWithBalance;
   }, [settings]);
@@ -322,40 +330,91 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        {/* Table Header - Desktop Only */}
+        <div className="hidden md:grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50 border-b border-slate-200">
+          <div className="col-span-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Account / Ledger Name</div>
+          <div className="col-span-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Category</div>
+          <div className="col-span-2 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Balance</div>
+          <div className="col-span-2 text-right"></div>
+        </div>
+
         {errorMessage && (
-          <div className="col-span-full bg-red-50 border border-red-100 p-4 rounded-xl flex items-center justify-between text-red-600 text-sm animate-in slide-in-from-top-2">
+          <div className="bg-red-50 border-b border-red-100 p-4 flex items-center justify-between text-red-600 text-sm animate-in slide-in-from-top-2">
             <p>{errorMessage}</p>
             <button onClick={() => setErrorMessage(null)} className="p-1 hover:bg-red-100 rounded">
               <X size={16} />
             </button>
           </div>
         )}
-        {(accounts || []).map((account) => {
-          const Icon = icons[account.type] || Wallet;
-          return (
-            <div 
-              key={account.id} 
-              onClick={() => openLedgerDetail(account.id)}
-              className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:border-blue-300 hover:shadow-md transition-all group cursor-pointer relative overflow-hidden"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div 
-                  className="w-12 h-12 rounded-xl flex items-center justify-center text-white shadow-sm"
-                  style={{ backgroundColor: account.color || "#3b82f6" }}
-                >
-                  <Icon size={24} />
+
+        <div className="divide-y divide-slate-100">
+          {(accounts || []).map((account) => {
+            const Icon = icons[account.type] || Wallet;
+            return (
+              <div 
+                key={account.id} 
+                onClick={() => openLedgerDetail(account.id)}
+                className="grid grid-cols-12 gap-4 px-4 md:px-6 py-4 hover:bg-slate-50/50 transition-all group cursor-pointer items-center relative"
+              >
+                {/* Account Name & Icon */}
+                <div className="col-span-9 md:col-span-5 flex items-center gap-4">
+                  <div 
+                    className="w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm"
+                    style={{ backgroundColor: account.color || "#3b82f6" }}
+                  >
+                    <Icon size={20} />
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="font-bold text-slate-900 truncate">{account.name}</h4>
+                    <div className="flex md:hidden items-center gap-2 mt-0.5">
+                      <span className={cn(
+                        "text-[9px] font-black uppercase tracking-tight",
+                        account.effectiveType === "ASSET" ? "text-blue-500" :
+                        account.effectiveType === "LIABILITY" ? "text-amber-500" :
+                        account.effectiveType === "INCOME" ? "text-emerald-500" :
+                        account.effectiveType === "EXPENSE" ? "text-red-500" :
+                        "text-slate-400"
+                      )}>
+                        {account.effectiveType}{account.effectiveType !== account.type && " *"}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1">
+
+                {/* Category Label - Desktop */}
+                <div className="hidden md:flex col-span-3 justify-center">
+                  <span className={cn(
+                    "px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest",
+                    account.effectiveType === "ASSET" ? "bg-blue-50 text-blue-600 border border-blue-100" :
+                    account.effectiveType === "LIABILITY" ? "bg-amber-50 text-amber-600 border border-amber-100" :
+                    account.effectiveType === "INCOME" ? "bg-emerald-50 text-emerald-600 border border-emerald-100" :
+                    account.effectiveType === "EXPENSE" ? "bg-red-50 text-red-600 border border-red-100" :
+                    "bg-slate-50 text-slate-500 border border-slate-200"
+                  )}>
+                    {account.effectiveType}
+                    {account.effectiveType !== account.type && " *"}
+                  </span>
+                </div>
+
+                {/* Balance */}
+                <div className="col-span-3 md:col-span-2 text-right">
+                  <span className="text-base md:text-lg font-black text-slate-900 tracking-tight">
+                    {formatCurrency(account.currentBalance)}
+                  </span>
+                </div>
+
+                {/* Actions Overlay / Row Actions */}
+                <div className="hidden md:flex col-span-2 justify-end items-center gap-1">
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();
                       setEditingAccount(account);
                       openAddModal();
                     }}
-                    className="p-1.5 text-slate-300 hover:text-blue-500 transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                    className="p-1.5 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                   >
-                    <Pencil size={18} /> 
+                    <Pencil size={16} /> 
                   </button>
                   <button 
                     onClick={(e) => {
@@ -363,13 +422,13 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
                       account.id && handleDelete(account.id);
                     }}
                     className={cn(
-                      "p-1.5 transition-all text-sm font-bold rounded-lg",
+                      "p-1.5 rounded-lg transition-all",
                       confirmDeleteId === account.id 
-                        ? "bg-red-600 text-white px-2 py-1" 
-                        : "text-slate-300 hover:text-red-500 opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                        ? "bg-red-600 text-white" 
+                        : "text-slate-300 hover:text-red-600 hover:bg-red-50"
                     )}
                   >
-                    {confirmDeleteId === account.id ? "Confirm?" : <Trash2 size={18} />}
+                    {confirmDeleteId === account.id ? <span className="text-[10px] font-black px-1">CONFIRM</span> : <Trash2 size={16} />}
                   </button>
                   {confirmDeleteId === account.id && (
                     <button 
@@ -383,32 +442,18 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
                     </button>
                   )}
                 </div>
+
+                {/* Indicators */}
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex md:hidden">
+                   <ChevronRight size={16} className="text-slate-300" />
+                </div>
               </div>
-              <div className="flex items-center justify-between group/title">
-                <h4 className="font-bold text-slate-900 mb-1">{account.name}</h4>
-                <ExternalLink size={14} className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
-              </div>
-              <div className="flex items-center gap-2 mb-4">
-                <span className={cn(
-                  "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider",
-                  account.type === "ASSET" ? "bg-blue-50 text-blue-600" :
-                  account.type === "LIABILITY" ? "bg-amber-50 text-amber-600" :
-                  account.type === "INCOME" ? "bg-emerald-50 text-emerald-600" :
-                  account.type === "EXPENSE" ? "bg-red-50 text-red-600" :
-                  "bg-slate-50 text-slate-600"
-                )}>
-                  {account.type}
-                </span>
-              </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-black text-slate-900">{formatCurrency(account.currentBalance)}</span>
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
         {(accounts || []).length === 0 && (
-          <div className="col-span-full p-20 text-center bg-white rounded-2xl border border-dashed border-slate-300">
-            <p className="text-slate-400">No accounts found. Create your first ledger to get started.</p>
+          <div className="p-20 text-center bg-white">
+            <p className="text-slate-400 text-sm italic">No ledger accounts found. Create your first ledger to get started.</p>
           </div>
         )}
       </div>
@@ -423,7 +468,12 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
             >
               <div className="relative z-10">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-black uppercase tracking-widest opacity-80">{selectedAccountDetails.type}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black uppercase tracking-widest opacity-80">{selectedAccountDetails.effectiveType}</span>
+                    {selectedAccountDetails.effectiveType !== selectedAccountDetails.type && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 bg-black/20 rounded">Transferred from {selectedAccountDetails.type}</span>
+                    )}
+                  </div>
                   <button 
                     onClick={closeModals}
                     className="p-2 bg-black/10 hover:bg-black/20 rounded-full transition-colors"

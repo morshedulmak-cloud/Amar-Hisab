@@ -4,11 +4,11 @@ import { db, getAccountBalance, getAccountSummary } from "../db/database";
 import { formatCurrency, cn, savePDF } from "../lib/utils";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from "date-fns";
-import { FileText, PieChart, Landmark, Scale, TrendingUp, ChevronRight, Download, Loader2 } from "lucide-react";
+import { FileText, PieChart, Landmark, Scale, TrendingUp, ChevronRight, Download, Loader2, ArrowDownRight, ArrowUpLeft, RefreshCw } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
-type ReportTab = "charts" | "trial-balance" | "income-statement" | "balance-sheet";
+type ReportTab = "charts" | "trial-balance" | "income-statement" | "balance-sheet" | "receipt-payment" | "cash-flow";
 
 export default function Reports() {
   const [activeTab, setActiveTab] = useState<ReportTab>("charts");
@@ -37,10 +37,23 @@ export default function Reports() {
         const cumulativeTx = await getAccountBalance(acc.id!, settings?.endDate);
         const rawClosingBalance = (acc.initialBalance || 0) + cumulativeTx;
 
-        // Presentation Logic based on Universal Ledger Rules
+        // Dynamic Re-categorization Logic for Assets & Liabilities
+        let effectiveType = acc.type;
         let presentationBalance = rawClosingBalance;
-        if (acc.type === "INCOME" || acc.type === "EXPENSE" || acc.type === "LIABILITY" || acc.type === "EQUITY") {
-          presentationBalance = rawClosingBalance * -1;
+
+        if (acc.type === "ASSET" || acc.type === "LIABILITY") {
+          if (rawClosingBalance >= 0) {
+            effectiveType = "ASSET";
+            presentationBalance = rawClosingBalance;
+          } else {
+            effectiveType = "LIABILITY";
+            presentationBalance = rawClosingBalance * -1;
+          }
+        } else {
+          // Standard logic for Income, Expense, Equity
+          if (acc.type === "INCOME" || acc.type === "EXPENSE" || acc.type === "EQUITY") {
+            presentationBalance = rawClosingBalance * -1;
+          }
         }
 
         // For Profit/Loss items, we look at the period activity (summary.net) instead of cumulative
@@ -50,6 +63,7 @@ export default function Reports() {
 
         return {
           ...acc,
+          effectiveType,
           openingBalance,
           periodDebit: summary.debit,
           periodCredit: summary.credit,
@@ -70,16 +84,25 @@ export default function Reports() {
     const netProfit = totalIncome - totalExpense;
 
     const totalAssets = accountBalances
-      .filter(a => a.type === "ASSET")
+      .filter(a => a.effectiveType === "ASSET")
       .reduce((sum, a) => sum + a.balance, 0);
 
     const totalLiabilities = accountBalances
-      .filter(a => a.type === "LIABILITY")
+      .filter(a => a.effectiveType === "LIABILITY")
       .reduce((sum, a) => sum + a.balance, 0);
 
     const totalEquity = accountBalances
       .filter(a => a.type === "EQUITY")
       .reduce((sum, a) => sum + a.balance, 0);
+
+    // Opening and Closing Cash/Bank restricted to ASSETS
+    const openingCash = accountBalances
+      .filter(a => a.type === "ASSET")
+      .reduce((sum, s) => sum + s.openingBalance, 0);
+
+    const closingCash = accountBalances
+      .filter(a => a.type === "ASSET")
+      .reduce((sum, s) => sum + s.closingBalance, 0);
 
     return {
       accountBalances,
@@ -88,7 +111,9 @@ export default function Reports() {
       netProfit,
       totalAssets,
       totalLiabilities,
-      totalEquity
+      totalEquity,
+      openingCash,
+      closingCash
     };
   }, [accountsData]);
 
@@ -180,8 +205,8 @@ export default function Reports() {
         doc.setTextColor(0);
         doc.text("Balance Sheet", 14, 45);
 
-        const assetBody = reportsData.accountBalances.filter(a => a.type === "ASSET").map(acc => [acc.name, formatCurrency(acc.balance)]);
-        const liabBody = reportsData.accountBalances.filter(a => a.type === "LIABILITY").map(acc => [acc.name, formatCurrency(acc.balance)]);
+        const assetBody = reportsData.accountBalances.filter(a => a.effectiveType === "ASSET").map(acc => [acc.name, formatCurrency(acc.balance)]);
+        const liabBody = reportsData.accountBalances.filter(a => a.effectiveType === "LIABILITY").map(acc => [acc.name, formatCurrency(acc.balance)]);
         const equityBody = reportsData.accountBalances.filter(a => a.type === "EQUITY").map(acc => [acc.name, formatCurrency(acc.balance)]);
 
         autoTable(doc, {
@@ -208,6 +233,75 @@ export default function Reports() {
         doc.setFontSize(8);
         doc.setTextColor(150);
         doc.text("Balanced: Total Assets = Total Liabilities + Total Equity", 105, (doc as any).lastAutoTable.finalY + 15, { align: "center" });
+
+      } else if (activeTab === "receipt-payment") {
+        title = "Receipt_Payment_Statement";
+        doc.setFontSize(16);
+        doc.setTextColor(0);
+        doc.text("Receipt & Payment Statement", 14, 45);
+
+        const receiptBody = reportsData.accountBalances.filter(a => a.type === "INCOME").map(acc => [acc.name, formatCurrency(acc.balance)]);
+        const paymentBody = reportsData.accountBalances.filter(a => a.type === "EXPENSE").map(acc => [acc.name, formatCurrency(Math.abs(acc.balance))]);
+
+        autoTable(doc, {
+          head: [["Opening Cash & Bank Balance", formatCurrency(reportsData.openingCash)]],
+          body: [],
+          startY: 50,
+          theme: "plain",
+          headStyles: { fillColor: [248, 250, 252], textColor: [0, 0, 0] }
+        });
+
+        autoTable(doc, {
+          head: [["Receipts (Inflows)", "Amount"]],
+          body: [...receiptBody, [{ content: "Total Receipts", styles: { fontStyle: "bold" } }, { content: formatCurrency(reportsData.totalIncome), styles: { fontStyle: "bold" } }]],
+          startY: (doc as any).lastAutoTable.finalY + 5,
+          theme: "plain",
+          headStyles: { textColor: [16, 185, 129], fontStyle: "bold" }
+        });
+
+        autoTable(doc, {
+          head: [["Payments (Outflows)", "Amount"]],
+          body: [...paymentBody, [{ content: "Total Payments", styles: { fontStyle: "bold" } }, { content: formatCurrency(reportsData.totalExpense), styles: { fontStyle: "bold" } }]],
+          startY: (doc as any).lastAutoTable.finalY + 5,
+          theme: "plain",
+          headStyles: { textColor: [239, 68, 68], fontStyle: "bold" }
+        });
+
+        autoTable(doc, {
+          head: [["Closing Cash & Bank Balance", formatCurrency(reportsData.closingCash)]],
+          body: [],
+          startY: (doc as any).lastAutoTable.finalY + 10,
+          theme: "plain",
+          headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: "bold" }
+        });
+
+      } else if (activeTab === "cash-flow") {
+        title = "Cash_Flow_Statement";
+        doc.setFontSize(16);
+        doc.setTextColor(0);
+        doc.text("Statement of Cash Flows", 14, 45);
+
+        const opFlow = reportsData.totalIncome - reportsData.totalExpense;
+        const invFlow = reportsData.accountBalances
+          .filter(a => a.type === "ASSET" && (a.name.toLowerCase().includes("fixed") || a.name.toLowerCase().includes("invest")))
+          .reduce((sum, a) => sum + (a.openingBalance - a.closingBalance), 0);
+        const finFlow = reportsData.accountBalances
+          .filter(a => a.type === "LIABILITY" || a.type === "EQUITY")
+          .reduce((sum, a) => sum + (a.closingBalance - a.openingBalance), 0);
+
+        autoTable(doc, {
+          head: [["Cash Flow Activity", "Net Amount"]],
+          body: [
+            ["Cash Flow from Operating Activities", formatCurrency(opFlow)],
+            ["Cash Flow from Investing Activities", formatCurrency(invFlow)],
+            ["Cash Flow from Financing Activities", formatCurrency(finFlow)],
+            [{ content: "Net Increase/Decrease in Cash", styles: { fontStyle: "bold" } }, { content: formatCurrency(opFlow + invFlow + finFlow), styles: { fontStyle: "bold" } }],
+            ["Cash at Beginning of Period", formatCurrency(reportsData.openingCash)],
+            [{ content: "Cash at End of Period", styles: { fontStyle: "bold" } }, { content: formatCurrency(reportsData.closingCash), styles: { fontStyle: "bold" } }]
+          ],
+          startY: 50,
+          theme: "striped"
+        });
 
       } else {
         // Charts tab
@@ -371,6 +465,24 @@ export default function Reports() {
             >
               <Scale size={16} /> Balance Sheet
             </button>
+            <button 
+              onClick={() => setActiveTab("receipt-payment")}
+              className={cn(
+                "px-4 py-2 text-sm font-bold rounded-lg transition-all flex items-center gap-2",
+                activeTab === "receipt-payment" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-900"
+              )}
+            >
+              <ArrowDownRight size={16} /> Receipts & Payments
+            </button>
+            <button 
+              onClick={() => setActiveTab("cash-flow")}
+              className={cn(
+                "px-4 py-2 text-sm font-bold rounded-lg transition-all flex items-center gap-2",
+                activeTab === "cash-flow" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-900"
+              )}
+            >
+              <RefreshCw size={16} /> Cash Flow
+            </button>
           </div>
         </div>
       </div>
@@ -472,7 +584,9 @@ export default function Reports() {
                     <tr key={acc.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4">
                         <p className="font-bold text-slate-900">{acc.name}</p>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase">{acc.type}</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase">
+                          {acc.effectiveType} {acc.effectiveType !== acc.type && `(Original: ${acc.type})`}
+                        </p>
                       </td>
                       <td className="px-6 py-4 text-right font-mono text-sm text-slate-500">
                         {formatCurrency(acc.openingBalance)}
@@ -582,9 +696,12 @@ export default function Reports() {
             <div className="p-8 space-y-8">
               <h5 className="text-sm font-bold text-blue-600 uppercase tracking-widest mb-4 border-b pb-2">Assets</h5>
               <div className="space-y-4">
-                {reportsData.accountBalances.filter(a => a.type === "ASSET").map(acc => (
+                {reportsData.accountBalances.filter(a => a.effectiveType === "ASSET").map(acc => (
                   <div key={acc.id} className="flex justify-between items-center text-slate-700">
-                    <span>{acc.name}</span>
+                    <div className="flex flex-col">
+                      <span>{acc.name}</span>
+                      {acc.type !== acc.effectiveType && <span className="text-[8px] text-slate-400 uppercase font-black tracking-tighter leading-none">{acc.type} Transferred</span>}
+                    </div>
                     <span className="font-mono">{formatCurrency(acc.balance)}</span>
                   </div>
                 ))}
@@ -600,9 +717,12 @@ export default function Reports() {
               <div>
                 <h5 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-4 border-b pb-2">Liabilities</h5>
                 <div className="space-y-4">
-                  {reportsData.accountBalances.filter(a => a.type === "LIABILITY").map(acc => (
+                  {reportsData.accountBalances.filter(a => a.effectiveType === "LIABILITY").map(acc => (
                     <div key={acc.id} className="flex justify-between items-center text-slate-700">
-                      <span>{acc.name}</span>
+                      <div className="flex flex-col">
+                        <span>{acc.name}</span>
+                        {acc.type !== acc.effectiveType && <span className="text-[8px] text-slate-400 uppercase font-black tracking-tighter leading-none">{acc.type} Transferred</span>}
+                      </div>
                       <span className="font-mono">{formatCurrency(acc.balance)}</span>
                     </div>
                   ))}
@@ -634,6 +754,184 @@ export default function Reports() {
           
           <div className="p-4 bg-slate-900 text-slate-400 text-[10px] text-center uppercase tracking-[0.2em]">
             This statement is balanced when Total Assets = Total Liabilities + Total Equity
+          </div>
+        </div>
+      )}
+
+      {activeTab === "receipt-payment" && reportsData && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="p-6 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+            <div>
+              <h4 className="font-bold text-lg text-slate-900">Receipt & Payment Statement</h4>
+              <p className="text-xs text-slate-500 uppercase tracking-wider mt-1">Cash basis summary for the period</p>
+            </div>
+            <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm text-right">
+              <span className="text-[10px] font-black text-slate-400 uppercase block leading-none mb-1">Opening Balance</span>
+              <span className="text-lg font-black text-slate-900">{formatCurrency(reportsData.openingCash)}</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-100">
+            <div className="p-8">
+              <h5 className="flex items-center gap-2 text-sm font-black text-emerald-600 uppercase tracking-widest mb-6 border-b pb-2">
+                <ArrowDownRight size={16} /> Receipts (Cash Inflows)
+              </h5>
+              <div className="space-y-4">
+                {reportsData.accountBalances.filter(a => a.type === "INCOME").map(acc => (
+                  <div key={acc.id} className="flex justify-between items-center">
+                    <span className="text-slate-600 text-sm font-medium">{acc.name}</span>
+                    <span className="font-mono text-emerald-600 font-bold">{formatCurrency(acc.balance)}</span>
+                  </div>
+                ))}
+                {reportsData.accountBalances.filter(a => a.type === "INCOME").length === 0 && (
+                  <p className="text-slate-400 italic text-sm">No receipts recorded</p>
+                )}
+                <div className="pt-4 mt-4 border-t border-slate-100 flex justify-between items-center font-black text-slate-900">
+                  <span className="text-sm">Total Receipts</span>
+                  <span className="font-mono text-emerald-600">{formatCurrency(reportsData.totalIncome)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-8 bg-slate-50/20">
+              <h5 className="flex items-center gap-2 text-sm font-black text-red-600 uppercase tracking-widest mb-6 border-b pb-2">
+                <ArrowUpLeft size={16} /> Payments (Cash Outflows)
+              </h5>
+              <div className="space-y-4">
+                {reportsData.accountBalances.filter(a => a.type === "EXPENSE").map(acc => (
+                  <div key={acc.id} className="flex justify-between items-center">
+                    <span className="text-slate-600 text-sm font-medium">{acc.name}</span>
+                    <span className="font-mono text-red-600 font-bold">{formatCurrency(Math.abs(acc.balance))}</span>
+                  </div>
+                ))}
+                {reportsData.accountBalances.filter(a => a.type === "EXPENSE").length === 0 && (
+                  <p className="text-slate-400 italic text-sm">No payments recorded</p>
+                )}
+                <div className="pt-4 mt-4 border-t border-slate-100 flex justify-between items-center font-black text-slate-900">
+                  <span className="text-sm">Total Payments</span>
+                  <span className="font-mono text-red-600">{formatCurrency(reportsData.totalExpense)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-8 bg-slate-900 text-white flex justify-between items-center">
+            <div>
+              <p className="text-xs text-slate-400 font-black uppercase tracking-widest">Ending Ledger Integrity</p>
+              <h5 className="text-xl font-black">Net Cash & Bank Balance</h5>
+            </div>
+            <div className="text-right">
+              <span className="text-3xl font-black tracking-tighter text-blue-400">{formatCurrency(reportsData.closingCash)}</span>
+              <p className="text-[10px] text-slate-500 mt-1">Verified against {reportsData.accountBalances.filter(a => a.type === "ASSET").length} cash/bank ledgers</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "cash-flow" && reportsData && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="p-6 border-b border-slate-100 bg-blue-50">
+            <h4 className="font-bold text-lg text-blue-900">Statement of Cash Flows</h4>
+            <p className="text-xs text-blue-600 uppercase tracking-wider mt-1">Categorized by Operating, Investing, and Financing activities</p>
+          </div>
+
+          <div className="p-8 space-y-8">
+            {/* Operating */}
+            <div className="space-y-6">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                <h5 className="text-xs font-black text-slate-400 uppercase tracking-widest">Operating Activities</h5>
+                <span className="font-black text-slate-900">{formatCurrency(reportsData.totalIncome - reportsData.totalExpense)}</span>
+              </div>
+              <div className="pl-4 space-y-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-600">Cash received from Revenue</span>
+                  <span className="text-emerald-600 font-bold">+{formatCurrency(reportsData.totalIncome)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-600">Cash paid for Expenses</span>
+                  <span className="text-red-500 font-bold">-{formatCurrency(reportsData.totalExpense)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Investing - Placeholder logic based on asset name keywords since we don't have sub-categories yet */}
+            <div className="space-y-6">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                <h5 className="text-xs font-black text-slate-400 uppercase tracking-widest">Investing Activities</h5>
+                <span className="font-black text-slate-900">
+                  {formatCurrency(reportsData.accountBalances
+                    .filter(a => a.type === "ASSET" && (a.name.toLowerCase().includes("fixed") || a.name.toLowerCase().includes("invest")))
+                    .reduce((sum, a) => sum + (a.openingBalance - a.closingBalance), 0)
+                  )}
+                </span>
+              </div>
+              <div className="pl-4 space-y-3">
+                {reportsData.accountBalances
+                  .filter(a => a.type === "ASSET" && (a.name.toLowerCase().includes("fixed") || a.name.toLowerCase().includes("invest")))
+                  .map(acc => {
+                    const diff = acc.openingBalance - acc.closingBalance;
+                    return (
+                      <div key={acc.id} className="flex justify-between text-sm">
+                        <span className="text-slate-600">{diff > 0 ? `Disposal of ${acc.name}` : `Purchase of ${acc.name}`}</span>
+                        <span className={cn("font-bold", diff > 0 ? "text-emerald-600" : "text-red-500")}>
+                          {diff > 0 ? "+" : ""}{formatCurrency(diff)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                {reportsData.accountBalances.filter(a => a.type === "ASSET" && (a.name.toLowerCase().includes("fixed") || a.name.toLowerCase().includes("invest"))).length === 0 && (
+                  <p className="text-slate-400 italic text-xs pl-4">No investing activities detected (e.g. Fixed Assets)</p>
+                )}
+              </div>
+            </div>
+
+            {/* Financing */}
+            <div className="space-y-6">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                <h5 className="text-xs font-black text-slate-400 uppercase tracking-widest">Financing Activities</h5>
+                <span className="font-black text-slate-900">
+                  {formatCurrency(reportsData.accountBalances
+                    .filter(a => a.type === "LIABILITY" || a.type === "EQUITY")
+                    .reduce((sum, a) => sum + (a.closingBalance - a.openingBalance), 0)
+                  )}
+                </span>
+              </div>
+              <div className="pl-4 space-y-3">
+                {reportsData.accountBalances
+                  .filter(a => a.type === "LIABILITY" || a.type === "EQUITY")
+                  .map(acc => {
+                    const diff = acc.closingBalance - acc.openingBalance;
+                    if (diff === 0) return null;
+                    return (
+                      <div key={acc.id} className="flex justify-between text-sm">
+                        <span className="text-slate-600">{diff > 0 ? `Proceeds from ${acc.name}` : `Repayment of ${acc.name}`}</span>
+                        <span className={cn("font-bold", diff > 0 ? "text-emerald-600" : "text-red-500")}>
+                          {diff > 0 ? "+" : ""}{formatCurrency(diff)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                {reportsData.accountBalances.filter(a => (a.type === "LIABILITY" || a.type === "EQUITY") && (a.closingBalance !== a.openingBalance)).length === 0 && (
+                  <p className="text-slate-400 italic text-xs pl-4">No major financing activities (Equity/Loans) this period</p>
+                )}
+              </div>
+            </div>
+
+            {/* Reconciliation */}
+            <div className="mt-12 pt-8 border-t-2 border-slate-900 space-y-4">
+              <div className="flex justify-between items-center text-lg font-black bg-slate-50 p-4 rounded-xl">
+                <span>Net Cash Movement</span>
+                <span className="text-blue-600">{formatCurrency(reportsData.closingCash - reportsData.openingCash)}</span>
+              </div>
+              <div className="flex justify-between items-center px-4 text-sm text-slate-500 font-bold">
+                <span>Cash at Beginning</span>
+                <span>{formatCurrency(reportsData.openingCash)}</span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-4 text-xl font-black text-white bg-slate-900 rounded-xl">
+                <span>Cash at End of Period</span>
+                <span className="text-blue-400">{formatCurrency(reportsData.closingCash)}</span>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -21,9 +21,10 @@ interface TransactionsListProps {
   accountId?: number;
   isAddingExternal?: boolean;
   onCloseExternal?: () => void;
+  variant?: "default" | "ledger";
 }
 
-export default function TransactionsList({ accountId, isAddingExternal, onCloseExternal }: TransactionsListProps) {
+export default function TransactionsList({ accountId, isAddingExternal, onCloseExternal, variant = "default" }: TransactionsListProps) {
   const [isAdding, setIsAdding] = useState(false);
 
   React.useEffect(() => {
@@ -173,171 +174,144 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
         </div>
       </div>
 
-      {/* Mobile Card Layout */}
-      <div className="md:hidden space-y-4">
-        {(transactions || []).map((tx) => {
-          const voucherLabel = tx.voucherType && tx.voucherNo 
-            ? `${tx.voucherType}-${String(tx.voucherNo).padStart(3, "0")}`
-            : "N/A";
-          return (
-            <div key={tx.id} className={cn("p-4 bg-white rounded-xl border border-slate-200 shadow-sm transition-all", confirmDeleteId === tx.id && "bg-red-50 ring-1 ring-red-200")}>
-              <div className="flex justify-between items-start mb-3">
-                <div className="flex items-center gap-2">
-                  <div className={cn(
-                    "w-8 h-8 rounded-lg flex items-center justify-center",
-                    tx.type === "INCOME" ? "bg-emerald-50 text-emerald-600" :
-                    tx.type === "EXPENSE" ? "bg-red-50 text-red-600" :
-                    "bg-blue-50 text-blue-600"
-                  )}>
-                    {tx.type === "INCOME" ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
+      {/* Unified Professional Statement List Layout */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        {/* Statement Header - Desktop Only */}
+        <div className="hidden md:grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50 border-b border-slate-200">
+          <div className="col-span-1 text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</div>
+          <div className="col-span-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Voucher</div>
+          <div className="col-span-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Description & Accounts</div>
+          <div className="col-span-2 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Debit (+)</div>
+          <div className="col-span-2 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Credit (-)</div>
+        </div>
+
+        <div className="divide-y divide-slate-100">
+          {(transactions || []).map((tx) => {
+            const voucherLabel = tx.voucherType && tx.voucherNo 
+              ? `${tx.voucherType}-${String(tx.voucherNo).padStart(3, "0")}`
+              : "N/A";
+            const isDebit = tx.toAccountId === accountId;
+            
+            return (
+              <div 
+                key={tx.id} 
+                className={cn(
+                  "p-4 md:px-6 md:py-4 hover:bg-slate-50/50 transition-all group relative",
+                  confirmDeleteId === tx.id && "bg-red-50"
+                )}
+              >
+                {/* Desktop View (Grid) */}
+                <div className="hidden md:grid grid-cols-12 gap-4 items-center">
+                  <div className="col-span-1 text-xs font-bold text-slate-500">
+                    {format(tx.date, "dd MMM, yy")}
                   </div>
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{voucherLabel}</p>
-                    <p className="text-xs text-slate-500 font-medium">{format(tx.date, "MMM dd, yyyy")}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="font-bold text-slate-900">{formatCurrency(tx.amount)}</p>
-                  {accountId && (
-                    <span className={cn(
-                      "text-[9px] font-bold px-1.5 py-0.5 rounded uppercase",
-                      tx.toAccountId === accountId ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
-                    )}>
-                      {tx.toAccountId === accountId ? "Debit" : "Credit"}
+                  
+                  <div className="col-span-2">
+                    <span className="text-[10px] font-black px-2 py-1 bg-slate-100 rounded text-slate-500 tracking-tighter">
+                      {voucherLabel}
                     </span>
-                  )}
+                  </div>
+
+                  <div className="col-span-5 flex flex-col min-w-0">
+                    <span className="text-sm font-bold text-slate-900 truncate">
+                      {accountId 
+                        ? (isDebit ? `From: ${getAccountName(tx.fromAccountId)}` : `To: ${getAccountName(tx.toAccountId)}`)
+                        : `${getAccountName(tx.fromAccountId)} ➔ ${getAccountName(tx.toAccountId)}`
+                      }
+                    </span>
+                    <span className="text-[11px] text-slate-400 italic truncate">{tx.note || "No description"}</span>
+                  </div>
+
+                  <div className="col-span-2 text-right">
+                    {(!accountId || isDebit) && (
+                      <span className={cn("text-base font-black", accountId && isDebit ? "text-emerald-600" : "text-slate-800")}>
+                        {formatCurrency(tx.amount)}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="col-span-2 text-right">
+                    {(!accountId || !isDebit) && (
+                      <span className={cn("text-base font-black", accountId && !isDebit ? "text-red-500" : "text-slate-800")}>
+                        {formatCurrency(tx.amount)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Mobile View (Stacked List) */}
+                <div className="md:hidden">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">{format(tx.date, "dd MMM, yyyy")}</span>
+                      <span className="text-[10px] font-black px-1.5 py-0.5 bg-slate-100 rounded text-slate-500">{voucherLabel}</span>
+                    </div>
+                    <div className="text-right">
+                       <p className={cn(
+                        "text-sm font-black",
+                        accountId ? (isDebit ? "text-emerald-600" : "text-red-600") : "text-slate-900"
+                      )}>
+                        {isDebit ? "+" : "-"}{formatCurrency(tx.amount)}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="text-sm font-bold text-slate-900 truncate">
+                    {isDebit ? getAccountName(tx.fromAccountId) : getAccountName(tx.toAccountId)}
+                  </p>
+                  <p className="text-[11px] text-slate-500 truncate italic mt-0.5">{tx.note || "No notes"}</p>
+                </div>
+
+                {/* Actions Overlay (Hover Desktop, All-time Mobile) */}
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-all flex items-center gap-1 bg-white/90 backdrop-blur-sm p-1 rounded-lg border shadow-sm md:flex hidden">
+                  <button onClick={() => { setEditingTransaction(tx); setTxType(tx.type); openAddModal(); }} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors"><Pencil size={14} /></button>
+                  <button onClick={() => tx.id && handleDelete(tx.id)} className={cn("p-1.5 rounded-md transition-all", confirmDeleteId === tx.id ? "bg-red-600 text-white" : "text-slate-300 hover:text-red-600 hover:bg-red-50")}>{confirmDeleteId === tx.id ? <span className="text-[10px] font-black px-1 uppercase">Delete?</span> : <Trash2 size={14} />}</button>
+                </div>
+
+                {/* Mobile Actions (Small dots or slide indicator would be better but let's keep it simple and accessible) */}
+                <div className="flex md:hidden items-center gap-3 mt-4 pt-3 border-t border-slate-50">
+                  <button onClick={() => { setEditingTransaction(tx); setTxType(tx.type); openAddModal(); }} className="flex-1 py-1.5 bg-slate-50 text-blue-600 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1"><Pencil size={12} /> Edit</button>
+                  <button onClick={() => tx.id && handleDelete(tx.id)} className={cn("flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1", confirmDeleteId === tx.id ? "bg-red-600 text-white" : "bg-slate-50 text-slate-400")}><Trash2 size={12} /> {confirmDeleteId === tx.id ? "Confirm?" : "Delete"}</button>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2 mb-3 py-2 border-y border-slate-50">
-                <div>
-                  <p className="text-[9px] text-slate-400 uppercase font-black">From</p>
-                  <p className="text-xs font-semibold text-slate-700 truncate">{getAccountName(tx.fromAccountId)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-slate-400 uppercase font-black">To</p>
-                  <p className="text-xs font-semibold text-slate-700 truncate">{getAccountName(tx.toAccountId)}</p>
-                </div>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs text-slate-500 italic truncate flex-1">{tx.note || "No notes"}</p>
-                <div className="flex items-center gap-1">
-                  <button onClick={() => { setEditingTransaction(tx); setTxType(tx.type); openAddModal(); }} className="p-2 text-blue-600 bg-blue-50 rounded-lg"><Pencil size={14} /></button>
-                  <button onClick={() => tx.id && handleDelete(tx.id)} className={cn("p-2 rounded-lg", confirmDeleteId === tx.id ? "bg-red-600 text-white" : "text-red-600 bg-red-50")}><Trash2 size={14} /></button>
-                </div>
-              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer Summary - Always Show Professional Totals */}
+        {summary && (
+          <div className="bg-slate-900 overflow-hidden">
+            <div className="grid grid-cols-1 md:grid-cols-12 items-center">
+               <div className="md:col-span-8 p-6 md:p-8 flex flex-col md:flex-row gap-8">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Opening Balance</span>
+                    <span className="text-sm font-bold text-slate-300">{formatCurrency(summary.openingBalance)}</span>
+                  </div>
+                  <div className="flex gap-12">
+                     <div className="flex flex-col">
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Total Debit</span>
+                        <span className="text-base font-black text-emerald-400">+{formatCurrency(summary.dr)}</span>
+                     </div>
+                     <div className="flex flex-col">
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Total Credit</span>
+                        <span className="text-base font-black text-red-500">-{formatCurrency(summary.cr)}</span>
+                     </div>
+                  </div>
+               </div>
+               <div className="md:col-span-4 p-6 md:p-8 bg-slate-800 md:h-full flex flex-col justify-center text-right border-t md:border-t-0 border-slate-700">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Closing Ledger Balance</span>
+                  <span className="text-3xl md:text-4xl font-black tracking-tighter text-blue-400">{formatCurrency(summary.closingBalance)}</span>
+               </div>
             </div>
-          );
-        })}
-        {(transactions || []).length === 0 && <div className="py-10 text-center text-slate-400 text-sm">No entries found</div>}
+          </div>
+        )}
+
+        {(transactions || []).length === 0 && (
+          <div className="py-20 text-center bg-white text-slate-400 italic text-sm">
+            No accounting entries recorded for this period.
+          </div>
+        )}
       </div>
 
-      {/* Desktop Table Layout */}
-      <div className="hidden md:block bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50/50 border-b border-slate-100">
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Date</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Voucher</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">From (Cr)</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">To (Dr)</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Purpose</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Amount</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {(transactions || []).map((tx) => {
-                const voucherLabel = tx.voucherType && tx.voucherNo 
-                  ? `${tx.voucherType}-${String(tx.voucherNo).padStart(3, "0")}`
-                  : "N/A";
-                return (
-                  <tr key={tx.id} className="hover:bg-slate-50/50 transition-colors group">
-                    <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">
-                      {format(tx.date, "MMM dd, yyyy")}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-[10px] font-bold px-2 py-1 bg-slate-100 rounded text-slate-600">{voucherLabel}</span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-sm font-medium text-slate-900">{getAccountName(tx.fromAccountId)}</span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-sm font-medium text-slate-900">{getAccountName(tx.toAccountId)}</span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-500 max-w-[200px] truncate">
-                      {tx.note || "-"}
-                      {accountId && (
-                        <span className={cn(
-                          "ml-2 text-[10px] font-bold px-1 rounded",
-                          tx.toAccountId === accountId ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"
-                        )}>
-                          {tx.toAccountId === accountId ? "DEBIT" : "CREDIT"}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-sm font-bold text-right whitespace-nowrap text-slate-900">
-                      {formatCurrency(tx.amount)}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button 
-                          onClick={() => {
-                            setEditingTransaction(tx);
-                            setTxType(tx.type);
-                            openAddModal();
-                          }}
-                          className="p-1.5 text-slate-300 hover:text-blue-500 transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
-                        >
-                          <Pencil size={16} />
-                        </button>
-                        <button 
-                          onClick={() => tx.id && handleDelete(tx.id)}
-                          className={cn(
-                            "p-1.5 transition-all text-sm font-bold rounded-lg",
-                            confirmDeleteId === tx.id 
-                              ? "bg-red-600 text-white px-2 py-1" 
-                              : "text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-100 md:opacity-0 md:group-hover:opacity-100"
-                          )}
-                        >
-                          {confirmDeleteId === tx.id ? "Delete?" : <Trash2 size={16} />}
-                        </button>
-                        {confirmDeleteId === tx.id && (
-                          <button 
-                            onClick={() => setConfirmDeleteId(null)}
-                            className="p-1 text-slate-400 hover:text-slate-600"
-                          >
-                            <X size={14} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            {summary && (
-              <tfoot>
-                <tr className="bg-slate-50 font-bold border-t-2 border-slate-200">
-                  <td colSpan={5} className="px-6 py-4 text-xs uppercase tracking-wider text-slate-500">
-                    <div className="flex items-center gap-8">
-                      <span>Total Debit Period: <span className="text-blue-600">{formatCurrency(summary.dr)}</span></span>
-                      <span>Total Credit Period: <span className="text-slate-600">{formatCurrency(summary.cr)}</span></span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-right text-lg font-black text-slate-900">
-                    {formatCurrency(summary.closingBalance)}
-                  </td>
-                  <td></td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-          {(transactions || []).length === 0 && (
-            <div className="py-20 text-center text-slate-400">No ledger entries found</div>
-          )}
-        </div>
-      </div>
 
       {/* Add/Edit Modal */}
       {isAdding && (

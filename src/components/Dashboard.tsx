@@ -62,9 +62,11 @@ export default function Dashboard() {
     for (const account of accountsData) {
       if (account.id) {
         const balance = await getAccountBalance(account.id, end);
-        const finalBalance = (account.initialBalance || 0) + balance;
+        const currentBalance = (account.initialBalance || 0) + balance;
+        
+        // Sum ASSET and LIABILITY accounts for Net Worth
         if (account.type === "ASSET" || account.type === "LIABILITY") {
-          total += finalBalance;
+          total += currentBalance;
         }
       }
     }
