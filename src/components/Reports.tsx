@@ -1,10 +1,10 @@
 import React, { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, getAccountBalance, getAccountSummary } from "../db/database";
-import { formatCurrency, cn } from "../lib/utils";
+import { formatCurrency, cn, savePDF } from "../lib/utils";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from "date-fns";
-import { FileText, PieChart, Landmark, Scale, TrendingUp, ChevronRight, Download } from "lucide-react";
+import { FileText, PieChart, Landmark, Scale, TrendingUp, ChevronRight, Download, Loader2 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -12,6 +12,7 @@ type ReportTab = "charts" | "trial-balance" | "income-statement" | "balance-shee
 
 export default function Reports() {
   const [activeTab, setActiveTab] = useState<ReportTab>("charts");
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const settings = useLiveQuery(() => db.settings.get("app-settings"));
   const accountsData = useLiveQuery(() => db.accounts.where("isDeleted").equals(0).toArray());
@@ -91,142 +92,151 @@ export default function Reports() {
     };
   }, [accountsData]);
 
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
     if (!reportsData) return;
+    setIsGenerating(true);
     
-    const doc = new jsPDF();
-    const dateStr = format(new Date(), "yyyy-MM-dd-HHmm");
-    let title = "Report";
-    
-    // Add header
-    doc.setFontSize(22);
-    doc.setTextColor(59, 130, 246); // blue-600
-    doc.text(settings?.profileName || "Universal Ledger", 14, 20);
-    
-    doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.text(`Period: ${settings ? format(settings.startDate, "MMMM dd, yyyy") : ""} - ${settings ? format(settings.endDate, "MMMM dd, yyyy") : ""}`, 14, 28);
-    doc.text(`Generated on: ${format(new Date(), "MMMM dd, yyyy HH:mm")}`, 14, 34);
-    doc.line(14, 38, 196, 38);
-
-    if (activeTab === "trial-balance") {
-      title = "Trial_Balance";
-      doc.setFontSize(16);
-      doc.setTextColor(0);
-      doc.text("Trial Balance", 14, 45);
+    try {
+      const doc = new jsPDF();
+      const dateStr = format(new Date(), "yyyy-MM-dd-HHmm");
+      let title = "Report";
       
-      const body = reportsData.accountBalances.map(acc => [
-        acc.name,
-        formatCurrency(acc.openingBalance),
-        formatCurrency(acc.periodDebit),
-        formatCurrency(acc.periodCredit),
-        formatCurrency(acc.closingBalance)
-      ]);
-
-      autoTable(doc, {
-        head: [["Ledger Name", "Opening", "Total Debit", "Total Credit", "Closing Balance"]],
-        body,
-        startY: 50,
-        theme: "striped",
-        headStyles: { fillColor: [59, 130, 246] },
-        foot: [["Total", 
-          formatCurrency(reportsData.accountBalances.reduce((s, a) => s + a.openingBalance, 0)),
-          formatCurrency(reportsData.accountBalances.reduce((s, a) => s + a.periodDebit, 0)),
-          formatCurrency(reportsData.accountBalances.reduce((s, a) => s + a.periodCredit, 0)),
-          formatCurrency(reportsData.accountBalances.reduce((s, a) => s + a.closingBalance, 0))
-        ]],
-        footStyles: { fillColor: [241, 245, 249], textColor: [0, 0, 0], fontStyle: "bold" }
-      });
-
-    } else if (activeTab === "income-statement") {
-      title = "Income_Statement";
-      doc.setFontSize(16);
-      doc.setTextColor(0);
-      doc.text("Income Statement (P&L)", 14, 45);
-
-      const incomeBody = reportsData.accountBalances.filter(a => a.type === "INCOME").map(acc => [acc.name, formatCurrency(acc.balance)]);
-      const expenseBody = reportsData.accountBalances.filter(a => a.type === "EXPENSE").map(acc => [acc.name, formatCurrency(Math.abs(acc.balance))]);
-
-      autoTable(doc, {
-        head: [["Revenue / Income", "Amount"]],
-        body: [...incomeBody, [{ content: "Total Income", styles: { fontStyle: "bold" } }, { content: formatCurrency(reportsData.totalIncome), styles: { fontStyle: "bold" } }]],
-        startY: 50,
-        theme: "plain",
-        headStyles: { textColor: [16, 185, 129], fontStyle: "bold" }
-      });
-
-      autoTable(doc, {
-        head: [["Operating Expenses", "Amount"]],
-        body: [...expenseBody, [{ content: "Total Expenses", styles: { fontStyle: "bold" } }, { content: formatCurrency(reportsData.totalExpense), styles: { fontStyle: "bold", textColor: [239, 68, 68] } }]],
-        startY: (doc as any).lastAutoTable.finalY + 10,
-        theme: "plain",
-        headStyles: { textColor: [239, 68, 68], fontStyle: "bold" }
-      });
-
-      const netY = (doc as any).lastAutoTable.finalY + 15;
-      doc.setFillColor(15, 23, 42); // slate-900
-      doc.rect(14, netY, 182, 15, "F");
-      doc.setTextColor(255);
-      doc.setFontSize(12);
-      doc.text("Net Profit / (Loss)", 20, netY + 10);
-      doc.text(formatCurrency(reportsData.netProfit), 190, netY + 10, { align: "right" });
-
-    } else if (activeTab === "balance-sheet") {
-      title = "Balance_Sheet";
-      doc.setFontSize(16);
-      doc.setTextColor(0);
-      doc.text("Balance Sheet", 14, 45);
-
-      const assetBody = reportsData.accountBalances.filter(a => a.type === "ASSET").map(acc => [acc.name, formatCurrency(acc.balance)]);
-      const liabBody = reportsData.accountBalances.filter(a => a.type === "LIABILITY").map(acc => [acc.name, formatCurrency(acc.balance)]);
-      const equityBody = reportsData.accountBalances.filter(a => a.type === "EQUITY").map(acc => [acc.name, formatCurrency(acc.balance)]);
-
-      autoTable(doc, {
-        head: [["Assets", "Value"]],
-        body: [...assetBody, [{ content: "Total Assets", styles: { fontStyle: "bold", fontSize: 11 } }, { content: formatCurrency(reportsData.totalAssets), styles: { fontStyle: "bold", fontSize: 11 } }]],
-        startY: 50,
-        theme: "plain",
-        headStyles: { textColor: [59, 130, 246], fontStyle: "bold" }
-      });
-
-      autoTable(doc, {
-        head: [["Liabilities & Equity", "Value"]],
-        body: [
-          ...liabBody,
-          ...equityBody,
-          ["Current Year Earnings (P&L)", formatCurrency(reportsData.netProfit)],
-          [{ content: "Total Liabilities & Equity", styles: { fontStyle: "bold", fontSize: 11 } }, { content: formatCurrency(reportsData.totalLiabilities + reportsData.totalEquity + reportsData.netProfit), styles: { fontStyle: "bold", fontSize: 11 } }]
-        ],
-        startY: (doc as any).lastAutoTable.finalY + 10,
-        theme: "plain",
-        headStyles: { textColor: [0, 0, 0], fontStyle: "bold" }
-      });
-
-      doc.setFontSize(8);
-      doc.setTextColor(150);
-      doc.text("Balanced: Total Assets = Total Liabilities + Total Equity", 105, (doc as any).lastAutoTable.finalY + 15, { align: "center" });
-
-    } else {
-      // Charts tab
-      title = "Monthly_Summary";
-      doc.text("Monthly Financial Summary", 14, 45);
+      // Add header
+      doc.setFontSize(22);
+      doc.setTextColor(59, 130, 246); // blue-600
+      doc.text(settings?.profileName || "Universal Ledger", 14, 20);
       
-      const body = (monthlyData || []).map(d => [
-        d.month,
-        formatCurrency(d.income),
-        formatCurrency(d.expense),
-        formatCurrency(d.profit)
-      ]);
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text(`Period: ${settings ? format(settings.startDate, "MMMM dd, yyyy") : ""} - ${settings ? format(settings.endDate, "MMMM dd, yyyy") : ""}`, 14, 28);
+      doc.text(`Generated on: ${format(new Date(), "MMMM dd, yyyy HH:mm")}`, 14, 34);
+      doc.line(14, 38, 196, 38);
 
-      autoTable(doc, {
-        head: [["Month", "Income", "Expense", "Net Profit"]],
-        body,
-        startY: 50,
-        theme: "grid"
-      });
+      if (activeTab === "trial-balance") {
+        title = "Trial_Balance";
+        doc.setFontSize(16);
+        doc.setTextColor(0);
+        doc.text("Trial Balance", 14, 45);
+        
+        const body = reportsData.accountBalances.map(acc => [
+          acc.name,
+          formatCurrency(acc.openingBalance),
+          formatCurrency(acc.periodDebit),
+          formatCurrency(acc.periodCredit),
+          formatCurrency(acc.closingBalance)
+        ]);
+
+        autoTable(doc, {
+          head: [["Ledger Name", "Opening", "Total Debit", "Total Credit", "Closing Balance"]],
+          body,
+          startY: 50,
+          theme: "striped",
+          headStyles: { fillColor: [59, 130, 246] },
+          foot: [["Total", 
+            formatCurrency(reportsData.accountBalances.reduce((s, a) => s + a.openingBalance, 0)),
+            formatCurrency(reportsData.accountBalances.reduce((s, a) => s + a.periodDebit, 0)),
+            formatCurrency(reportsData.accountBalances.reduce((s, a) => s + a.periodCredit, 0)),
+            formatCurrency(reportsData.accountBalances.reduce((s, a) => s + a.closingBalance, 0))
+          ]],
+          footStyles: { fillColor: [241, 245, 249], textColor: [0, 0, 0], fontStyle: "bold" }
+        });
+
+      } else if (activeTab === "income-statement") {
+        title = "Income_Statement";
+        doc.setFontSize(16);
+        doc.setTextColor(0);
+        doc.text("Income Statement (P&L)", 14, 45);
+
+        const incomeBody = reportsData.accountBalances.filter(a => a.type === "INCOME").map(acc => [acc.name, formatCurrency(acc.balance)]);
+        const expenseBody = reportsData.accountBalances.filter(a => a.type === "EXPENSE").map(acc => [acc.name, formatCurrency(Math.abs(acc.balance))]);
+
+        autoTable(doc, {
+          head: [["Revenue / Income", "Amount"]],
+          body: [...incomeBody, [{ content: "Total Income", styles: { fontStyle: "bold" } }, { content: formatCurrency(reportsData.totalIncome), styles: { fontStyle: "bold" } }]],
+          startY: 50,
+          theme: "plain",
+          headStyles: { textColor: [16, 185, 129], fontStyle: "bold" }
+        });
+
+        autoTable(doc, {
+          head: [["Operating Expenses", "Amount"]],
+          body: [...expenseBody, [{ content: "Total Expenses", styles: { fontStyle: "bold" } }, { content: formatCurrency(reportsData.totalExpense), styles: { fontStyle: "bold", textColor: [239, 68, 68] } }]],
+          startY: (doc as any).lastAutoTable.finalY + 10,
+          theme: "plain",
+          headStyles: { textColor: [239, 68, 68], fontStyle: "bold" }
+        });
+
+        const netY = (doc as any).lastAutoTable.finalY + 15;
+        doc.setFillColor(15, 23, 42); // slate-900
+        doc.rect(14, netY, 182, 15, "F");
+        doc.setTextColor(255);
+        doc.setFontSize(12);
+        doc.text("Net Profit / (Loss)", 20, netY + 10);
+        doc.text(formatCurrency(reportsData.netProfit), 190, netY + 10, { align: "right" });
+
+      } else if (activeTab === "balance-sheet") {
+        title = "Balance_Sheet";
+        doc.setFontSize(16);
+        doc.setTextColor(0);
+        doc.text("Balance Sheet", 14, 45);
+
+        const assetBody = reportsData.accountBalances.filter(a => a.type === "ASSET").map(acc => [acc.name, formatCurrency(acc.balance)]);
+        const liabBody = reportsData.accountBalances.filter(a => a.type === "LIABILITY").map(acc => [acc.name, formatCurrency(acc.balance)]);
+        const equityBody = reportsData.accountBalances.filter(a => a.type === "EQUITY").map(acc => [acc.name, formatCurrency(acc.balance)]);
+
+        autoTable(doc, {
+          head: [["Assets", "Value"]],
+          body: [...assetBody, [{ content: "Total Assets", styles: { fontStyle: "bold", fontSize: 11 } }, { content: formatCurrency(reportsData.totalAssets), styles: { fontStyle: "bold", fontSize: 11 } }]],
+          startY: 50,
+          theme: "plain",
+          headStyles: { textColor: [59, 130, 246], fontStyle: "bold" }
+        });
+
+        autoTable(doc, {
+          head: [["Liabilities & Equity", "Value"]],
+          body: [
+            ...liabBody,
+            ...equityBody,
+            ["Current Year Earnings (P&L)", formatCurrency(reportsData.netProfit)],
+            [{ content: "Total Liabilities & Equity", styles: { fontStyle: "bold", fontSize: 11 } }, { content: formatCurrency(reportsData.totalLiabilities + reportsData.totalEquity + reportsData.netProfit), styles: { fontStyle: "bold", fontSize: 11 } }]
+          ],
+          startY: (doc as any).lastAutoTable.finalY + 10,
+          theme: "plain",
+          headStyles: { textColor: [0, 0, 0], fontStyle: "bold" }
+        });
+
+        doc.setFontSize(8);
+        doc.setTextColor(150);
+        doc.text("Balanced: Total Assets = Total Liabilities + Total Equity", 105, (doc as any).lastAutoTable.finalY + 15, { align: "center" });
+
+      } else {
+        // Charts tab
+        title = "Monthly_Summary";
+        doc.setFontSize(16);
+        doc.setTextColor(0);
+        doc.text("Monthly Financial Summary", 14, 45);
+        
+        const body = (monthlyData || []).map(d => [
+          d.month,
+          formatCurrency(d.income),
+          formatCurrency(d.expense),
+          formatCurrency(d.profit)
+        ]);
+
+        autoTable(doc, {
+          head: [["Month", "Income", "Expense", "Net Profit"]],
+          body,
+          startY: 50,
+          theme: "grid"
+        });
+      }
+
+      await savePDF(doc, `${title}_${dateStr}.pdf`);
+    } catch (err) {
+      console.error("PDF generation failed:", err);
+    } finally {
+      setIsGenerating(false);
     }
-
-    doc.save(`${title}_${dateStr}.pdf`);
   };
 
   const monthlyData = useLiveQuery(async () => {
@@ -314,9 +324,15 @@ export default function Reports() {
         <div className="flex items-center gap-3">
           <button 
             onClick={handleDownloadPDF}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-bold rounded-xl hover:bg-slate-800 transition-colors shadow-lg shadow-slate-200"
+            disabled={isGenerating}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-bold rounded-xl hover:bg-slate-800 transition-colors shadow-lg shadow-slate-200 disabled:opacity-50"
           >
-            <Download size={16} /> Download PDF
+            {isGenerating ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Download size={16} />
+            )}
+            {isGenerating ? "Generating..." : "Download PDF"}
           </button>
           <div className="flex bg-slate-100 p-1 rounded-xl">
             <button 

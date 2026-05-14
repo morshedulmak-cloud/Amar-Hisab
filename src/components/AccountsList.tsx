@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, getAccountBalance } from "../db/database";
-import { formatCurrency, cn } from "../lib/utils";
-import { Plus, Wallet, CreditCard, Banknote, Landmark, Trash2, X, ArrowUpRight, ArrowDownLeft, Pencil, Download, ExternalLink, ArrowLeftRight } from "lucide-react";
+import { formatCurrency, cn, savePDF } from "../lib/utils";
+import { Plus, Wallet, CreditCard, Banknote, Landmark, Trash2, X, ArrowUpRight, ArrowDownLeft, Pencil, Download, ExternalLink, ArrowLeftRight, Loader2 } from "lucide-react";
 import TransactionsList from "./TransactionsList";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -15,6 +15,8 @@ interface AccountsListProps {
 
 export default function AccountsList({ isAddingExternal, onCloseExternal }: AccountsListProps) {
   const [isAdding, setIsAdding] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingBulk, setIsGeneratingBulk] = useState(false);
 
   React.useEffect(() => {
     if (isAddingExternal) {
@@ -185,97 +187,111 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
   };
 
   const handleDownloadSingleLedger = async (account: any) => {
-    const doc = new jsPDF();
-    const { body } = await generateLedgerTableData(account);
-    
-    doc.setFontSize(22);
-    doc.setTextColor(59, 130, 246);
-    doc.text(settings?.profileName || "Universal Ledger", 14, 20);
-    
-    doc.setFontSize(14);
-    doc.setTextColor(51, 65, 85);
-    doc.text(`Ledger: ${account.name}`, 14, 28);
-    
-    doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.text(`Type: ${account.type} | Current Balance: ${formatCurrency(account.currentBalance)}`, 14, 34);
-    doc.text(`Period: ${settings ? format(settings.startDate, "PP") : ""} - ${settings ? format(settings.endDate, "PP") : ""}`, 14, 40);
-    doc.text(`Generated: ${format(new Date(), "PPpp")}`, 14, 46);
-    doc.line(14, 50, 196, 50);
-
-    autoTable(doc, {
-      head: [["SL", "Date", "Voucher", "Details/Purpose", "Debit", "Credit", "Balance"]],
-      body,
-      startY: 55,
-      theme: "striped",
-      headStyles: { fillColor: [59, 130, 246] },
-      styles: { fontSize: 8 },
-      columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 25 }, 2: { cellWidth: 25 }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } }
-    });
-
-    doc.save(`Ledger_${account.name}_${format(new Date(), "yyyyMMdd")}.pdf`);
-  };
-
-  const handleDownloadAllLedgers = async () => {
-    if (!accounts) return;
-    const doc = new jsPDF("l", "mm", "a4"); // Landscape for better fit
-    let currentY = 20;
-
-    doc.setFontSize(22);
-    doc.setTextColor(59, 130, 246);
-    doc.text(settings?.profileName || "Bulk Ledger Report", 14, currentY);
-    currentY += 10;
-
-    doc.setFontSize(14);
-    doc.setTextColor(51, 65, 85);
-    doc.text("Complete Ledger Reconcilation", 14, currentY);
-    currentY += 10;
-    
-    doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.text(`Period: ${settings ? format(settings.startDate, "PP") : ""} - ${settings ? format(settings.endDate, "PP") : ""}`, 14, currentY);
-    currentY += 5;
-    doc.text(`Generated: ${format(new Date(), "PPpp")}`, 14, currentY);
-    currentY += 5;
-    doc.line(14, currentY, 282, currentY);
-    currentY += 10;
-
-    const summaryBody = accounts.map(a => [
-      a.name,
-      a.type,
-      formatCurrency(a.currentBalance)
-    ]);
-
-    autoTable(doc, {
-      head: [["Ledger Name", "Type", "Balance"]],
-      body: summaryBody,
-      startY: currentY,
-      theme: "grid",
-      headStyles: { fillColor: [51, 65, 85] }
-    });
-
-    for (const account of accounts) {
-      doc.addPage();
-      doc.setFontSize(16);
-      doc.setTextColor(0);
-      doc.text(`Ledger Statement: ${account.name}`, 14, 20);
-      doc.setFontSize(10);
-      doc.text(`Type: ${account.type}`, 14, 26);
-      
+    setIsGenerating(true);
+    try {
+      const doc = new jsPDF();
       const { body } = await generateLedgerTableData(account);
+      
+      doc.setFontSize(22);
+      doc.setTextColor(59, 130, 246);
+      doc.text(settings?.profileName || "Universal Ledger", 14, 20);
+      
+      doc.setFontSize(14);
+      doc.setTextColor(51, 65, 85);
+      doc.text(`Ledger: ${account.name}`, 14, 28);
+      
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text(`Type: ${account.type} | Current Balance: ${formatCurrency(account.currentBalance)}`, 14, 34);
+      doc.text(`Period: ${settings ? format(settings.startDate, "PP") : ""} - ${settings ? format(settings.endDate, "PP") : ""}`, 14, 40);
+      doc.text(`Generated: ${format(new Date(), "PPpp")}`, 14, 46);
+      doc.line(14, 50, 196, 50);
 
       autoTable(doc, {
         head: [["SL", "Date", "Voucher", "Details/Purpose", "Debit", "Credit", "Balance"]],
         body,
-        startY: 32,
+        startY: 55,
         theme: "striped",
         headStyles: { fillColor: [59, 130, 246] },
         styles: { fontSize: 8 },
-        columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 30 }, 2: { cellWidth: 30 }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } }
+        columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 25 }, 2: { cellWidth: 25 }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } }
       });
-    }
 
-    doc.save(`Complete_Ledger_Report_${format(new Date(), "yyyyMMdd")}.pdf`);
+      await savePDF(doc, `Ledger_${account.name}_${format(new Date(), "yyyyMMdd")}.pdf`);
+    } catch (err) {
+      console.error("PDF generation failed:", err);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleDownloadAllLedgers = async () => {
+    if (!accounts) return;
+    setIsGeneratingBulk(true);
+    try {
+      const doc = new jsPDF("l", "mm", "a4"); // Landscape for better fit
+      let currentY = 20;
+
+      doc.setFontSize(22);
+      doc.setTextColor(59, 130, 246);
+      doc.text(settings?.profileName || "Bulk Ledger Report", 14, currentY);
+      currentY += 10;
+
+      doc.setFontSize(14);
+      doc.setTextColor(51, 65, 85);
+      doc.text("Complete Ledger Reconcilation", 14, currentY);
+      currentY += 10;
+      
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text(`Period: ${settings ? format(settings.startDate, "PP") : ""} - ${settings ? format(settings.endDate, "PP") : ""}`, 14, currentY);
+      currentY += 5;
+      doc.text(`Generated: ${format(new Date(), "PPpp")}`, 14, currentY);
+      currentY += 5;
+      doc.line(14, currentY, 282, currentY);
+      currentY += 10;
+
+      const summaryBody = accounts.map(a => [
+        a.name,
+        a.type,
+        formatCurrency(a.currentBalance)
+      ]);
+
+      autoTable(doc, {
+        head: [["Ledger Name", "Type", "Balance"]],
+        body: summaryBody,
+        startY: currentY,
+        theme: "grid",
+        headStyles: { fillColor: [51, 65, 85] }
+      });
+
+      for (const account of accounts) {
+        doc.addPage();
+        doc.setFontSize(16);
+        doc.setTextColor(0);
+        doc.text(`Ledger Statement: ${account.name}`, 14, 20);
+        doc.setFontSize(10);
+        doc.text(`Type: ${account.type}`, 14, 26);
+        
+        const { body } = await generateLedgerTableData(account);
+
+        autoTable(doc, {
+          head: [["SL", "Date", "Voucher", "Details/Purpose", "Debit", "Credit", "Balance"]],
+          body,
+          startY: 32,
+          theme: "striped",
+          headStyles: { fillColor: [59, 130, 246] },
+          styles: { fontSize: 8 },
+          columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 30 }, 2: { cellWidth: 30 }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } }
+        });
+      }
+
+      await savePDF(doc, `Complete_Ledger_Report_${format(new Date(), "yyyyMMdd")}.pdf`);
+    } catch (err) {
+      console.error("PDF generation failed:", err);
+    } finally {
+      setIsGeneratingBulk(false);
+    }
   };
 
   const selectedAccountDetails = accounts?.find(a => a.id === selectedAccountId);
@@ -290,10 +306,11 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
         <div className="flex items-center gap-2">
           <button 
             onClick={handleDownloadAllLedgers}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-bold hover:bg-slate-200 transition-colors"
+            disabled={isGeneratingBulk}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-bold hover:bg-slate-200 transition-colors disabled:opacity-50"
           >
-            <Download size={16} />
-            Bulk PDF
+            {isGeneratingBulk ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+            {isGeneratingBulk ? "Wait..." : "Bulk PDF"}
           </button>
           <button 
             onClick={openAddModal}
@@ -421,10 +438,11 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
                   </div>
                   <button 
                     onClick={() => handleDownloadSingleLedger(selectedAccountDetails)}
-                    className="flex items-center gap-2 px-6 py-3 bg-white text-slate-900 rounded-2xl text-sm font-black hover:bg-slate-100 transition-all shadow-xl shadow-black/10 w-fit"
+                    disabled={isGenerating}
+                    className="flex items-center gap-2 px-6 py-3 bg-white text-slate-900 rounded-2xl text-sm font-black hover:bg-slate-100 transition-all shadow-xl shadow-black/10 w-fit disabled:opacity-50"
                   >
-                    <Download size={18} />
-                    Statement PDF
+                    {isGenerating ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+                    {isGenerating ? "Generating..." : "Statement PDF"}
                   </button>
                 </div>
               </div>
