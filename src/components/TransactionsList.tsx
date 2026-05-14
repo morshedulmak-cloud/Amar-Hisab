@@ -37,30 +37,71 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
     setEditingTransaction(null);
     if (onCloseExternal) onCloseExternal();
   };
+  // Handle back button for modals
+  React.useEffect(() => {
+    const handlePop = (e: any) => {
+      const state = e.detail;
+      if (!state.isModal) {
+        setIsAdding(false);
+        setEditingTransaction(null);
+      }
+    };
+    window.addEventListener("app-popstate" as any, handlePop);
+    return () => window.removeEventListener("app-popstate" as any, handlePop);
+  }, []);
+
+  const openAddModal = () => {
+    const currentState = window.history.state;
+    window.history.pushState({ ...currentState, isModal: true, modalType: "transaction" }, "");
+    setIsAdding(true);
+  };
+
+  const closeModals = () => {
+    if (window.history.state.isModal) {
+      window.history.back();
+    } else {
+      setIsAdding(false);
+      setEditingTransaction(null);
+      if (onCloseExternal) onCloseExternal();
+    }
+  };
+
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [txType, setTxType] = useState<TransactionType>("EXPENSE");
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   const accounts = useLiveQuery(() => db.accounts.where("isDeleted").equals(0).toArray());
+  const accountMap = React.useMemo(() => new Map((accounts || []).map(a => [a.id, a])), [accounts]);
+  const getAccountName = React.useCallback((id: number) => accountMap.get(id)?.name || "Unknown", [accountMap]);
   
   const settings = useLiveQuery(() => db.settings.get("app-settings"));
   
   const transactions = useLiveQuery(async () => {
-    let collection = db.transactions.where("isDeleted").equals(0);
-    let txs = await collection.reverse().sortBy("date");
+    let collection: any;
     
-    if (settings) {
-      txs = txs.filter(t => t.date >= settings.startDate && t.date <= settings.endDate);
-    }
+    const start = settings?.startDate || 0;
+    const end = settings?.endDate || Date.now();
+
+    // Primary index should be date for report periods
+    collection = db.transactions
+      .where("date")
+      .between(start, end, true, true)
+      .and(t => t.isDeleted === 0);
+
+    let txs = await collection.toArray();
+    
+    // Reverse sort by date
+    txs.sort((a, b) => b.date - a.date);
 
     if (accountId) {
       txs = txs.filter(t => t.fromAccountId === accountId || t.toAccountId === accountId);
     }
 
     if (searchQuery) {
+      const lowerQuery = searchQuery.toLowerCase();
       txs = txs.filter(t => 
-        t.note?.toLowerCase().includes(searchQuery.toLowerCase())
+        t.note?.toLowerCase().includes(lowerQuery)
       );
     }
     
@@ -69,7 +110,7 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
 
   const summary = useLiveQuery(async () => {
     if (!accountId) return null;
-    const account = await db.accounts.get(accountId);
+    const account = accountMap.get(accountId);
     if (!account) return null;
     
     const prevTxBalance = await getAccountBalance(accountId, (settings?.startDate || 0) - 1);
@@ -81,18 +122,16 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
     const closingBalance = (account.initialBalance || 0) + closingTxSurplus;
 
     return { openingBalance, dr: periodSummary.debit, cr: periodSummary.credit, closingBalance };
-  }, [accountId, settings]);
+  }, [accountId, settings, accountMap]);
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = React.useCallback(async (id: number) => {
     if (confirmDeleteId === id) {
       await db.transactions.update(id, { isDeleted: 1, updatedAt: Date.now(), syncStatus: "pending" });
       setConfirmDeleteId(null);
     } else {
       setConfirmDeleteId(id);
     }
-  };
-
-  const getAccountName = (id: number) => accounts?.find(a => a.id === id)?.name || "Unknown";
+  }, [confirmDeleteId]);
 
   return (
     <div className="space-y-6">
@@ -125,7 +164,7 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
 
         <div className="flex items-center gap-2">
           <button 
-            onClick={() => setIsAdding(true)}
+            onClick={openAddModal}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
           >
             <Plus size={16} />
@@ -134,7 +173,66 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      {/* Mobile Card Layout */}
+      <div className="md:hidden space-y-4">
+        {(transactions || []).map((tx) => {
+          const voucherLabel = tx.voucherType && tx.voucherNo 
+            ? `${tx.voucherType}-${String(tx.voucherNo).padStart(3, "0")}`
+            : "N/A";
+          return (
+            <div key={tx.id} className={cn("p-4 bg-white rounded-xl border border-slate-200 shadow-sm transition-all", confirmDeleteId === tx.id && "bg-red-50 ring-1 ring-red-200")}>
+              <div className="flex justify-between items-start mb-3">
+                <div className="flex items-center gap-2">
+                  <div className={cn(
+                    "w-8 h-8 rounded-lg flex items-center justify-center",
+                    tx.type === "INCOME" ? "bg-emerald-50 text-emerald-600" :
+                    tx.type === "EXPENSE" ? "bg-red-50 text-red-600" :
+                    "bg-blue-50 text-blue-600"
+                  )}>
+                    {tx.type === "INCOME" ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{voucherLabel}</p>
+                    <p className="text-xs text-slate-500 font-medium">{format(tx.date, "MMM dd, yyyy")}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="font-bold text-slate-900">{formatCurrency(tx.amount)}</p>
+                  {accountId && (
+                    <span className={cn(
+                      "text-[9px] font-bold px-1.5 py-0.5 rounded uppercase",
+                      tx.toAccountId === accountId ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+                    )}>
+                      {tx.toAccountId === accountId ? "Debit" : "Credit"}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 mb-3 py-2 border-y border-slate-50">
+                <div>
+                  <p className="text-[9px] text-slate-400 uppercase font-black">From</p>
+                  <p className="text-xs font-semibold text-slate-700 truncate">{getAccountName(tx.fromAccountId)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-slate-400 uppercase font-black">To</p>
+                  <p className="text-xs font-semibold text-slate-700 truncate">{getAccountName(tx.toAccountId)}</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-slate-500 italic truncate flex-1">{tx.note || "No notes"}</p>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => { setEditingTransaction(tx); setTxType(tx.type); openAddModal(); }} className="p-2 text-blue-600 bg-blue-50 rounded-lg"><Pencil size={14} /></button>
+                  <button onClick={() => tx.id && handleDelete(tx.id)} className={cn("p-2 rounded-lg", confirmDeleteId === tx.id ? "bg-red-600 text-white" : "text-red-600 bg-red-50")}><Trash2 size={14} /></button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        {(transactions || []).length === 0 && <div className="py-10 text-center text-slate-400 text-sm">No entries found</div>}
+      </div>
+
+      {/* Desktop Table Layout */}
+      <div className="hidden md:block bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
@@ -187,7 +285,7 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
                           onClick={() => {
                             setEditingTransaction(tx);
                             setTxType(tx.type);
-                            setIsAdding(true);
+                            openAddModal();
                           }}
                           className="p-1.5 text-slate-300 hover:text-blue-500 transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
                         >
@@ -248,7 +346,7 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
             <div className="p-6 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-bold text-lg">{editingTransaction ? "Edit Entry" : "New Double-Entry"}</h3>
               <button 
-                onClick={handleClose} 
+                onClick={closeModals} 
                 className="text-slate-400 hover:text-slate-600"
               >
                 <X size={20} />
@@ -310,7 +408,7 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
                   isDeleted: 0
                 });
               }
-              handleClose();
+              closeModals();
             }} className="p-6 space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-slate-700">Amount</label>

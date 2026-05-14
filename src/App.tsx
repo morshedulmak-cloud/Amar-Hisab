@@ -101,6 +101,47 @@ function AppContent() {
   const [dbError, setDbError] = useState<string | null>(null);
   const [forceAddTransaction, setForceAddTransaction] = useState(false);
   const [forceAddAccount, setForceAddAccount] = useState(false);
+
+  // Sync state with browser history for back button support
+  useEffect(() => {
+    // Set initial state
+    window.history.replaceState({ view: "dashboard", isModal: false }, "");
+
+    const handlePopState = (event: PopStateEvent) => {
+      const state = event.state;
+      if (state) {
+        setActiveView(state.view);
+        setForceAddTransaction(state.isModal && (state.modalType === "transaction"));
+        setForceAddAccount(state.isModal && (state.modalType === "account"));
+        
+        // Dispatch a custom event for sub-components to handle their own modals
+        window.dispatchEvent(new CustomEvent("app-popstate", { detail: state }));
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  const navigateTo = (view: View, isModal = false, modalType?: string, additionalState: any = {}) => {
+    // Don't push if it's the same state
+    const currentState = window.history.state;
+    if (currentState?.view === view && currentState?.isModal === isModal && currentState?.modalType === modalType && JSON.stringify(currentState?.additional === JSON.stringify(additionalState))) {
+      return;
+    }
+
+    const newState = { view, isModal, modalType, ...additionalState };
+    window.history.pushState(newState, "");
+    setActiveView(view);
+    
+    if (!isModal) {
+      setForceAddTransaction(false);
+      setForceAddAccount(false);
+    } else {
+      if (modalType === "transaction") setForceAddTransaction(true);
+      if (modalType === "account") setForceAddAccount(true);
+    }
+  };
   
   const settings = useLiveQuery(() => db.settings.get("app-settings"));
 
@@ -205,14 +246,14 @@ function AppContent() {
               <h2 className="text-lg font-bold tracking-tight capitalize leading-none">{activeView}</h2>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 md:gap-4">
             {settings && (
-              <div className="hidden lg:flex items-center gap-2 px-3 py-1 bg-slate-100 rounded-full text-[10px] font-black text-slate-500">
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-slate-100 rounded-full text-[10px] font-black text-slate-500">
                 <Calendar size={12} />
                 {format(settings.startDate, "MMM d, yyyy")} - {format(settings.endDate, "MMM d, yyyy")}
               </div>
             )}
-            <div className="relative hidden md:block">
+            <div className="relative hidden lg:block">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
                 type="text" 
@@ -220,7 +261,12 @@ function AppContent() {
                 className="pl-10 pr-4 py-1.5 bg-slate-100 border-none rounded-full text-sm focus:ring-2 focus:ring-blue-500 w-64 outline-none"
               />
             </div>
-            <button className="p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors">
+            <button 
+              onClick={() => {
+                navigateTo("transactions", true, "transaction");
+              }}
+              className="p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors active:scale-95"
+            >
                <PlusCircle size={24} className="text-blue-600" />
             </button>
           </div>
@@ -240,13 +286,19 @@ function AppContent() {
               {activeView === "transactions" && (
                 <TransactionsList 
                   isAddingExternal={forceAddTransaction} 
-                  onCloseExternal={() => setForceAddTransaction(false)} 
+                  onCloseExternal={() => {
+                    if (forceAddTransaction) window.history.back();
+                    setForceAddTransaction(false);
+                  }} 
                 />
               )}
               {activeView === "accounts" && (
                 <AccountsList 
                   isAddingExternal={forceAddAccount} 
-                  onCloseExternal={() => setForceAddAccount(false)} 
+                  onCloseExternal={() => {
+                    if (forceAddAccount) window.history.back();
+                    setForceAddAccount(false);
+                  }} 
                 />
               )}
               {activeView === "reports" && <Reports />}
@@ -275,7 +327,7 @@ function AppContent() {
                         />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <label className="text-sm font-bold text-slate-700">Reporting Start Date</label>
                           <input 
@@ -334,12 +386,9 @@ function AppContent() {
         <button
           onClick={() => {
             if (activeView === "dashboard" || activeView === "transactions") {
-              setForceAddTransaction(true);
-              if (activeView === "dashboard") {
-                setActiveView("transactions");
-              }
+              navigateTo("transactions", true, "transaction");
             } else if (activeView === "accounts") {
-              setForceAddAccount(true);
+              navigateTo("accounts", true, "account");
             }
           }}
           className="fixed bottom-24 right-6 w-14 h-14 bg-blue-600 text-white rounded-full shadow-2xl shadow-blue-200 flex items-center justify-center hover:bg-blue-700 active:scale-95 transition-all z-[60]"
@@ -356,7 +405,7 @@ function AppContent() {
           return (
             <button
               key={item.id}
-              onClick={() => setActiveView(item.id as View)}
+              onClick={() => navigateTo(item.id as View)}
               className={cn(
                 "flex-1 flex flex-col items-center justify-center gap-1 transition-all h-full",
                 isActive ? "text-blue-600" : "text-slate-400 hover:text-slate-600"

@@ -29,6 +29,45 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
   };
   const [editingAccount, setEditingAccount] = useState<any>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
+
+  // Handle back button for modals and drill-down
+  React.useEffect(() => {
+    const handlePop = (e: any) => {
+      const state = e.detail;
+      if (!state.isModal) {
+        setIsAdding(false);
+        setEditingAccount(null);
+        setSelectedAccountId(null);
+      } else if (state.modalType !== "ledger-detail") {
+        setSelectedAccountId(null);
+      }
+    };
+    window.addEventListener("app-popstate" as any, handlePop);
+    return () => window.removeEventListener("app-popstate" as any, handlePop);
+  }, []);
+
+  const openAddModal = () => {
+    const currentState = window.history.state;
+    window.history.pushState({ ...currentState, isModal: true, modalType: "account" }, "");
+    setIsAdding(true);
+  };
+
+  const openLedgerDetail = (id: number) => {
+    const currentState = window.history.state;
+    window.history.pushState({ ...currentState, isModal: true, modalType: "ledger-detail", ledgerId: id }, "");
+    setSelectedAccountId(id);
+  };
+
+  const closeModals = () => {
+    if (window.history.state.isModal) {
+      window.history.back();
+    } else {
+      setIsAdding(false);
+      setEditingAccount(null);
+      setSelectedAccountId(null);
+    }
+  };
+
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
@@ -257,7 +296,7 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
             Bulk PDF
           </button>
           <button 
-            onClick={() => setIsAdding(true)}
+            onClick={openAddModal}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm"
           >
             <Plus size={16} />
@@ -280,7 +319,7 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
           return (
             <div 
               key={account.id} 
-              onClick={() => setSelectedAccountId(account.id)}
+              onClick={() => openLedgerDetail(account.id)}
               className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:border-blue-300 hover:shadow-md transition-all group cursor-pointer relative overflow-hidden"
             >
               <div className="flex items-start justify-between mb-4">
@@ -290,12 +329,12 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
                 >
                   <Icon size={24} />
                 </div>
-        <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1">
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();
                       setEditingAccount(account);
-                      setIsAdding(true);
+                      openAddModal();
                     }}
                     className="p-1.5 text-slate-300 hover:text-blue-500 transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
                   >
@@ -369,7 +408,7 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-black uppercase tracking-widest opacity-80">{selectedAccountDetails.type}</span>
                   <button 
-                    onClick={() => setSelectedAccountId(null)}
+                    onClick={closeModals}
                     className="p-2 bg-black/10 hover:bg-black/20 rounded-full transition-colors"
                   >
                     <X size={20} />
@@ -411,7 +450,7 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-bold text-lg">{editingAccount ? "Edit Account" : "Create New Account"}</h3>
-              <button onClick={handleClose} className="text-slate-400 hover:text-slate-600">
+              <button onClick={closeModals} className="text-slate-400 hover:text-slate-600">
                 <X size={20} />
               </button>
             </div>

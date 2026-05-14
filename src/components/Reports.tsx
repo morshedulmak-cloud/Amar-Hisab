@@ -14,13 +14,13 @@ export default function Reports() {
   const [activeTab, setActiveTab] = useState<ReportTab>("charts");
 
   const settings = useLiveQuery(() => db.settings.get("app-settings"));
-  const accounts = useLiveQuery(() => db.accounts.where("isDeleted").equals(0).toArray());
+  const accountsData = useLiveQuery(() => db.accounts.where("isDeleted").equals(0).toArray());
 
   const reportsData = useLiveQuery(async () => {
-    if (!accounts) return null;
+    if (!accountsData) return null;
     
     const accountBalances = await Promise.all(
-      accounts.map(async (acc) => {
+      accountsData.map(async (acc) => {
         // For Profit/Loss (Income/Expense), we usually want the net change within the period
         // For Balance Sheet items, we want the cumulative balance including opening
         const isIncomeExpense = acc.type === "INCOME" || acc.type === "EXPENSE";
@@ -89,7 +89,7 @@ export default function Reports() {
       totalLiabilities,
       totalEquity
     };
-  }, [accounts]);
+  }, [accountsData]);
 
   const handleDownloadPDF = () => {
     if (!reportsData) return;
@@ -237,8 +237,8 @@ export default function Reports() {
     }
 
     const txs = await collection.toArray();
-    const allAccounts = await db.accounts.toArray();
-    const accountMap = new Map(allAccounts.map(a => [a.id, a]));
+    if (!accountsData) return [];
+    const accountMap = new Map((accountsData || []).map(a => [a.id, a]));
     
     // Last 6 months
     const now = new Date();
@@ -280,8 +280,8 @@ export default function Reports() {
     }
 
     const txs = await collection.toArray();
-    const allAccounts = await db.accounts.toArray();
-    const accountMap = new Map(allAccounts.map(a => [a.id, a]));
+    if (!accountsData) return [];
+    const accountMap = new Map((accountsData || []).map(a => [a.id, a]));
     const categories: Record<string, { income: number, expense: number }> = {};
     
     txs.forEach(t => {
@@ -439,58 +439,60 @@ export default function Reports() {
             <h4 className="font-bold text-lg">Trial Balance</h4>
             <p className="text-xs text-slate-500 uppercase tracking-wider mt-1">As of {format(new Date(), "MMMM dd, yyyy")}</p>
           </div>
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wider border-b border-slate-100">
-                <th className="px-6 py-4 font-bold">Ledger Name</th>
-                <th className="px-6 py-4 font-bold text-right">Opening</th>
-                <th className="px-6 py-4 font-bold text-right">Period Debit</th>
-                <th className="px-6 py-4 font-bold text-right">Period Credit</th>
-                <th className="px-6 py-4 font-bold text-right">Closing</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {reportsData.accountBalances.map(acc => {
-                return (
-                  <tr key={acc.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4">
-                      <p className="font-bold text-slate-900">{acc.name}</p>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase">{acc.type}</p>
-                    </td>
-                    <td className="px-6 py-4 text-right font-mono text-sm text-slate-500">
-                      {formatCurrency(acc.openingBalance)}
-                    </td>
-                    <td className="px-6 py-4 text-right font-mono text-sm text-blue-600 font-bold">
-                      {formatCurrency(acc.periodDebit)}
-                    </td>
-                    <td className="px-6 py-4 text-right font-mono text-sm text-slate-600 font-bold">
-                      {formatCurrency(acc.periodCredit)}
-                    </td>
-                    <td className="px-6 py-4 text-right font-mono text-sm font-black text-slate-900 bg-slate-50/50">
-                      {formatCurrency(acc.closingBalance)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            <tfoot>
-              <tr className="bg-slate-50 font-black border-t-2 border-slate-200 text-slate-900 uppercase text-[10px]">
-                <td className="px-6 py-4">Total Summary</td>
-                <td className="px-6 py-4 text-right font-mono">
-                  {formatCurrency(reportsData.accountBalances.reduce((s, a) => s + a.openingBalance, 0))}
-                </td>
-                <td className="px-6 py-4 text-right font-mono">
-                  {formatCurrency(reportsData.accountBalances.reduce((s, a) => s + a.periodDebit, 0))}
-                </td>
-                <td className="px-6 py-4 text-right font-mono">
-                  {formatCurrency(reportsData.accountBalances.reduce((s, a) => s + a.periodCredit, 0))}
-                </td>
-                <td className="px-6 py-4 text-right font-mono">
-                  {formatCurrency(reportsData.accountBalances.reduce((s, a) => s + a.closingBalance, 0))}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left min-w-[700px]">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wider border-b border-slate-100">
+                  <th className="px-6 py-4 font-bold">Ledger Name</th>
+                  <th className="px-6 py-4 font-bold text-right">Opening</th>
+                  <th className="px-6 py-4 font-bold text-right">Period Debit</th>
+                  <th className="px-6 py-4 font-bold text-right">Period Credit</th>
+                  <th className="px-6 py-4 font-bold text-right">Closing</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {reportsData.accountBalances.map(acc => {
+                  return (
+                    <tr key={acc.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-4">
+                        <p className="font-bold text-slate-900">{acc.name}</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase">{acc.type}</p>
+                      </td>
+                      <td className="px-6 py-4 text-right font-mono text-sm text-slate-500">
+                        {formatCurrency(acc.openingBalance)}
+                      </td>
+                      <td className="px-6 py-4 text-right font-mono text-sm text-blue-600 font-bold">
+                        {formatCurrency(acc.periodDebit)}
+                      </td>
+                      <td className="px-6 py-4 text-right font-mono text-sm text-slate-600 font-bold">
+                        {formatCurrency(acc.periodCredit)}
+                      </td>
+                      <td className="px-6 py-4 text-right font-mono text-sm font-black text-slate-900 bg-slate-50/50">
+                        {formatCurrency(acc.closingBalance)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="bg-slate-50 font-black border-t-2 border-slate-200 text-slate-900 uppercase text-[10px]">
+                  <td className="px-6 py-4">Total Summary</td>
+                  <td className="px-6 py-4 text-right font-mono">
+                    {formatCurrency(reportsData.accountBalances.reduce((s, a) => s + a.openingBalance, 0))}
+                  </td>
+                  <td className="px-6 py-4 text-right font-mono">
+                    {formatCurrency(reportsData.accountBalances.reduce((s, a) => s + a.periodDebit, 0))}
+                  </td>
+                  <td className="px-6 py-4 text-right font-mono">
+                    {formatCurrency(reportsData.accountBalances.reduce((s, a) => s + a.periodCredit, 0))}
+                  </td>
+                  <td className="px-6 py-4 text-right font-mono">
+                    {formatCurrency(reportsData.accountBalances.reduce((s, a) => s + a.closingBalance, 0))}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>
       )}
 
