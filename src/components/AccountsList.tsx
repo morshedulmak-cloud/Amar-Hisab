@@ -775,12 +775,21 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
                 />
               </div>
 
-              <button 
-                type="submit"
-                className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors shadow-md mt-4"
-              >
-                {editingAccount ? "Update Account" : "Create Account"}
-              </button>
+              <div className="flex gap-3 mt-4">
+                <button 
+                  type="button"
+                  onClick={closeModals}
+                  className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 font-bold rounded-lg hover:bg-slate-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-[2] bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors shadow-md"
+                >
+                  {editingAccount ? "Update Account" : "Create Account"}
+                </button>
+              </div>
             </form>
           </div>
         </div>

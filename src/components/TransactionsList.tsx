@@ -118,7 +118,7 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
     }
   }, [txType, editingTransaction]);
 
-  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -182,14 +182,12 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
     return { openingBalance, dr: periodSummary.debit, cr: periodSummary.credit, closingBalance };
   }, [accountId, settings, accountMap]);
 
-  const handleDelete = React.useCallback(async (id: number) => {
-    if (confirmDeleteId === id) {
-      await db.transactions.update(id, { isDeleted: 1, updatedAt: Date.now(), syncStatus: "pending" });
-      setConfirmDeleteId(null);
-    } else {
-      setConfirmDeleteId(id);
+  const handleDelete = async () => {
+    if (transactionToDelete?.id) {
+      await db.transactions.update(transactionToDelete.id, { isDeleted: 1, updatedAt: Date.now(), syncStatus: "pending" });
+      setTransactionToDelete(null);
     }
-  }, [confirmDeleteId]);
+  };
 
   const handleExportCSV = () => {
     if (!transactions || transactions.length === 0) return;
@@ -663,7 +661,7 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
                 key={tx.id} 
                 className={cn(
                   "p-4 md:px-6 md:py-4 hover:bg-slate-50/50 transition-all group relative",
-                  confirmDeleteId === tx.id && "bg-red-50"
+                  transactionToDelete?.id === tx.id && "bg-red-50"
                 )}
               >
                 {/* Desktop View (Grid) */}
@@ -736,14 +734,18 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
                     <Printer size={14} />
                   </button>
                   <button onClick={() => { setEditingTransaction(tx); setTxType(tx.type); openAddModal(); }} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors"><Pencil size={14} /></button>
-                  <button onClick={() => tx.id && handleDelete(tx.id)} className={cn("p-1.5 rounded-md transition-all", confirmDeleteId === tx.id ? "bg-red-600 text-white" : "text-slate-300 hover:text-red-600 hover:bg-red-50")}>{confirmDeleteId === tx.id ? <span className="text-[10px] font-black px-1 uppercase">Delete?</span> : <Trash2 size={14} />}</button>
+                  <button onClick={() => setTransactionToDelete(tx)} className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-md transition-all">
+                    <Trash2 size={14} />
+                  </button>
                 </div>
 
                 {/* Mobile Actions (Small dots or slide indicator would be better but let's keep it simple and accessible) */}
                 <div className="flex md:hidden items-center gap-3 mt-4 pt-3 border-t border-slate-50">
                   <button onClick={() => handlePrintVoucher(tx)} className="flex-1 py-1.5 bg-slate-50 text-slate-600 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1"><Printer size={12} /> Print</button>
                   <button onClick={() => { setEditingTransaction(tx); setTxType(tx.type); openAddModal(); }} className="flex-1 py-1.5 bg-slate-50 text-blue-600 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1"><Pencil size={12} /> Edit</button>
-                  <button onClick={() => tx.id && handleDelete(tx.id)} className={cn("flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1", confirmDeleteId === tx.id ? "bg-red-600 text-white" : "bg-slate-50 text-slate-400")}><Trash2 size={12} /> {confirmDeleteId === tx.id ? "Confirm?" : "Delete"}</button>
+                  <button onClick={() => setTransactionToDelete(tx)} className="flex-1 py-1.5 bg-slate-50 text-slate-400 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1">
+                    <Trash2 size={12} /> Delete
+                  </button>
                 </div>
               </div>
             );
@@ -785,6 +787,41 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
         )}
       </div>
 
+
+      {/* Confirmation Modal */}
+      {transactionToDelete && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in duration-200 border border-slate-100">
+            <div className="p-8 text-center">
+              <div className="w-16 h-16 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Trash2 size={32} />
+              </div>
+              <h3 className="text-xl font-black text-slate-900 mb-2">Confirm Deletion</h3>
+              <p className="text-slate-500 text-sm leading-relaxed mb-6">
+                Are you sure you want to delete this <span className="font-black text-slate-900">
+                  {transactionToDelete.voucherType}-{String(transactionToDelete.voucherNo).padStart(4, "0")}
+                </span> transaction of <span className="font-black text-red-600">{formatCurrency(transactionToDelete.amount)}</span>? 
+                This action is irreversible.
+              </p>
+              
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setTransactionToDelete(null)}
+                  className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleDelete}
+                  className="flex-1 px-4 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition-colors shadow-lg shadow-red-200"
+                >
+                  Yes, Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add/Edit Modal */}
       {isAdding && (
@@ -984,12 +1021,21 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
                 />
               </div>
 
-              <button 
-                type="submit"
-                className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors shadow-md mt-4"
-              >
-                {editingTransaction ? "Save Changes" : "Record Entry"}
-              </button>
+              <div className="flex gap-3 mt-4">
+                <button 
+                  type="button"
+                  onClick={closeModals}
+                  className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 font-bold rounded-lg hover:bg-slate-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-[2] bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors shadow-md"
+                >
+                  {editingTransaction ? "Save Changes" : "Record Entry"}
+                </button>
+              </div>
             </form>
           </div>
         </div>

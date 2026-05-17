@@ -26,6 +26,7 @@ import Dashboard from "./components/Dashboard";
 import TransactionsList from "./components/TransactionsList";
 import AccountsList from "./components/AccountsList";
 import Reports from "./components/Reports";
+import BackupManager from "./components/BackupManager";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -358,6 +359,8 @@ function AppContent() {
                       </button>
                     </form>
                   </div>
+
+                  <BackupManager />
 
                   <div className="bg-red-50 p-6 rounded-3xl border border-red-100">
                     <h4 className="text-red-900 font-bold mb-2">Danger Zone</h4>
