@@ -21,7 +21,7 @@ export interface Transaction {
   note?: string;
   type: TransactionType;
   voucherNo: number;
-  voucherType: "RV" | "PV" | "JV" | "CV";
+  voucherType: "RV" | "PV" | "JV" | "CV" | "SV" | "PR";
   date: number;
   createdAt: number;
   updatedAt: number;

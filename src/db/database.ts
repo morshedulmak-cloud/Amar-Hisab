@@ -33,7 +33,7 @@ export interface AppSettings {
 
 export const db = new UniversalLedgerDB();
 
-export async function getNextVoucherNo(type: "RV" | "PV" | "JV" | "CV") {
+export async function getNextVoucherNo(type: "RV" | "PV" | "JV" | "CV" | "SV" | "PR") {
   const seq = await db.sequences.get(type);
   if (seq) {
     return seq.lastNo + 1;
@@ -57,7 +57,7 @@ export async function getNextVoucherNo(type: "RV" | "PV" | "JV" | "CV") {
   return currentMax + 1;
 }
 
-export async function incrementVoucherNo(type: "RV" | "PV" | "JV" | "CV"): Promise<number> {
+export async function incrementVoucherNo(type: "RV" | "PV" | "JV" | "CV" | "SV" | "PR"): Promise<number> {
   return await db.transaction('rw', [db.sequences, db.transactions], async () => {
     let seq = await db.sequences.get(type);
     

@@ -111,7 +111,11 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
 
   React.useEffect(() => {
     if (!editingTransaction) {
-      const vType = txType === "INCOME" ? "RV" : txType === "EXPENSE" ? "PV" : "JV";
+      let vType: "RV" | "PV" | "JV" | "CV" | "SV" | "PR" = "JV";
+      if (txType === "INCOME") vType = "RV";
+      else if (txType === "EXPENSE") vType = "PV";
+      else vType = "JV";
+      
       setSelectedVoucherType(vType);
     } else {
       setSelectedVoucherType(editingTransaction.voucherType || "JV");
@@ -286,7 +290,9 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
     const voucherTitle = 
       tx.voucherType === "RV" ? "RECEIPT VOUCHER" : 
       tx.voucherType === "PV" ? "PAYMENT VOUCHER" :
-      tx.voucherType === "JV" ? "JOURNAL VOUCHER" : "CONTRA VOUCHER";
+      tx.voucherType === "JV" ? "JOURNAL VOUCHER" : 
+      tx.voucherType === "SV" ? "SALES VOUCHER" :
+      tx.voucherType === "PR" ? "PURCHASE VOUCHER" : "CONTRA VOUCHER";
 
     // 1. Company Header
     doc.setFontSize(16);
@@ -576,6 +582,8 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
               <option value="PV">Payment (PV)</option>
               <option value="JV">Journal (JV)</option>
               <option value="CV">Contra (CV)</option>
+              <option value="SV">Sales (SV)</option>
+              <option value="PR">Purchase (PR)</option>
             </select>
           </div>
 
@@ -864,7 +872,7 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
               const toId = Number(formData.get("toAccountId"));
               const note = formData.get("note") as string;
               const dateVal = formData.get("date") as string;
-              const vType = formData.get("voucherType") as "PV" | "RV" | "JV" | "CV";
+              const vType = formData.get("voucherType") as "PV" | "RV" | "JV" | "CV" | "SV" | "PR";
               const vNoInput = Number(formData.get("voucherNo"));
               
               const transactionDate = dateVal ? new Date(dateVal).getTime() : Date.now();
@@ -920,13 +928,29 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
                     name="voucherType" 
                     required 
                     value={selectedVoucherType}
-                    onChange={(e) => setSelectedVoucherType(e.target.value)}
+                    onChange={(e) => setSelectedVoucherType(e.target.value as any)}
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold bg-white"
                   >
-                    <option value="PV">Payment (PV)</option>
-                    <option value="RV">Receipt (RV)</option>
-                    <option value="JV">Journal (JV)</option>
-                    <option value="CV">Contra (CV)</option>
+                    {txType === "EXPENSE" && (
+                      <>
+                        <option value="PV">Payment (PV)</option>
+                        <option value="PR">Purchase (PR)</option>
+                      </>
+                    )}
+                    {txType === "INCOME" && (
+                      <>
+                        <option value="RV">Receipt (RV)</option>
+                        <option value="SV">Sales (SV)</option>
+                      </>
+                    )}
+                    {txType === "TRANSFER" && (
+                      <>
+                        <option value="JV">Journal (JV)</option>
+                        <option value="CV">Contra (CV)</option>
+                        <option value="SV">Sales (SV)</option>
+                        <option value="PR">Purchase (PR)</option>
+                      </>
+                    )}
                   </select>
                 </div>
               </div>
