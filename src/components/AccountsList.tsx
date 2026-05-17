@@ -168,7 +168,11 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
       txsQuery = txsQuery.filter(t => t.date >= settings.startDate && t.date <= settings.endDate);
     }
 
-    const txs = await txsQuery.sortBy("date");
+    const txs = await txsQuery.toArray();
+    txs.sort((a, b) => {
+      if (a.date !== b.date) return a.date - b.date;
+      return (a.voucherNo || 0) - (b.voucherNo || 0);
+    });
     
     let runningBalance = (account.initialBalance || 0) + openingBalanceFromTx;
     const isAssetOrExpense = account.type === "ASSET" || account.type === "EXPENSE";
@@ -245,7 +249,20 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
         theme: "striped",
         headStyles: { fillColor: [59, 130, 246] },
         styles: { fontSize: 8 },
-        columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 25 }, 2: { cellWidth: 25 }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } }
+        columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 25 }, 2: { cellWidth: 25 }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } },
+        didDrawPage: (data) => {
+          // Footer
+          const footerStr = "This is computer generated documents, does not require any signature";
+          const pageStr = `Page ${doc.internal.pages.length - 1}`;
+          const pageSize = doc.internal.pageSize;
+          const pageHeight = pageSize.height ? pageSize.height : pageSize.getHeight();
+          const pageWidth = pageSize.width ? pageSize.width : pageSize.getWidth();
+          
+          doc.setFontSize(8);
+          doc.setTextColor(150);
+          doc.text(footerStr, pageWidth / 2, pageHeight - 10, { align: "center" });
+          doc.text(pageStr, pageWidth - 14, pageHeight - 10, { align: "right" });
+        }
       });
 
       await savePDF(doc, `Ledger_${account.name}_${format(new Date(), "yyyyMMdd")}.pdf`);
@@ -293,7 +310,16 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
         body: summaryBody,
         startY: currentY,
         theme: "grid",
-        headStyles: { fillColor: [51, 65, 85] }
+        headStyles: { fillColor: [51, 65, 85] },
+        didDrawPage: (data) => {
+          doc.setFontSize(8);
+          doc.setTextColor(150);
+          const pageSize = doc.internal.pageSize;
+          const pageHeight = pageSize.height ? pageSize.height : pageSize.getHeight();
+          const pageWidth = pageSize.width ? pageSize.width : pageSize.getWidth();
+          doc.text("This is computer generated documents, does not require any signature", pageWidth / 2, pageHeight - 10, { align: "center" });
+          doc.text(`Page ${doc.internal.pages.length - 1}`, pageWidth - 14, pageHeight - 10, { align: "right" });
+        }
       });
 
       for (const account of accounts) {
@@ -313,7 +339,16 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
           theme: "striped",
           headStyles: { fillColor: [59, 130, 246] },
           styles: { fontSize: 8 },
-          columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 30 }, 2: { cellWidth: 30 }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } }
+          columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 30 }, 2: { cellWidth: 30 }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } },
+          didDrawPage: (data) => {
+            doc.setFontSize(8);
+            doc.setTextColor(150);
+            const pageSize = doc.internal.pageSize;
+            const pageHeight = pageSize.height ? pageSize.height : pageSize.getHeight();
+            const pageWidth = pageSize.width ? pageSize.width : pageSize.getWidth();
+            doc.text("This is computer generated documents, does not require any signature", pageWidth / 2, pageHeight - 10, { align: "center" });
+            doc.text(`Page ${doc.internal.pages.length - 1}`, pageWidth - 14, pageHeight - 10, { align: "right" });
+          }
         });
       }
 

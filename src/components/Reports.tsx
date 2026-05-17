@@ -167,7 +167,16 @@ export default function Reports() {
             formatCurrency(reportsData.accountBalances.reduce((s, a) => s + a.periodCredit, 0)),
             formatCurrency(reportsData.accountBalances.reduce((s, a) => s + a.closingBalance, 0))
           ]],
-          footStyles: { fillColor: [241, 245, 249], textColor: [0, 0, 0], fontStyle: "bold" }
+          footStyles: { fillColor: [241, 245, 249], textColor: [0, 0, 0], fontStyle: "bold" },
+          didDrawPage: (data) => {
+            doc.setFontSize(8);
+            doc.setTextColor(150);
+            const pageSize = doc.internal.pageSize;
+            const pageHeight = pageSize.height ? pageSize.height : pageSize.getHeight();
+            const pageWidth = pageSize.width ? pageSize.width : pageSize.getWidth();
+            doc.text("This is computer generated documents, does not require any signature", pageWidth / 2, pageHeight - 10, { align: "center" });
+            doc.text(`Page ${doc.internal.pages.length - 1}`, pageWidth - 14, pageHeight - 10, { align: "right" });
+          }
         });
 
       } else if (activeTab === "income-statement") {
@@ -192,7 +201,16 @@ export default function Reports() {
           body: [...expenseBody, [{ content: "Total Expenses", styles: { fontStyle: "bold" } }, { content: formatCurrency(reportsData.totalExpense * -1), styles: { fontStyle: "bold", textColor: [239, 68, 68] } }]],
           startY: (doc as any).lastAutoTable.finalY + 10,
           theme: "plain",
-          headStyles: { textColor: [239, 68, 68], fontStyle: "bold" }
+          headStyles: { textColor: [239, 68, 68], fontStyle: "bold" },
+          didDrawPage: (data) => {
+            doc.setFontSize(8);
+            doc.setTextColor(150);
+            const pageSize = doc.internal.pageSize;
+            const pageHeight = pageSize.height ? pageSize.height : pageSize.getHeight();
+            const pageWidth = pageSize.width ? pageSize.width : pageSize.getWidth();
+            doc.text("This is computer generated documents, does not require any signature", pageWidth / 2, pageHeight - 10, { align: "center" });
+            doc.text(`Page ${doc.internal.pages.length - 1}`, pageWidth - 14, pageHeight - 10, { align: "right" });
+          }
         });
 
         const netY = (doc as any).lastAutoTable.finalY + 15;
@@ -231,7 +249,16 @@ export default function Reports() {
           ],
           startY: (doc as any).lastAutoTable.finalY + 10,
           theme: "plain",
-          headStyles: { textColor: [0, 0, 0], fontStyle: "bold" }
+          headStyles: { textColor: [0, 0, 0], fontStyle: "bold" },
+          didDrawPage: (data) => {
+            doc.setFontSize(8);
+            doc.setTextColor(150);
+            const pageSize = doc.internal.pageSize;
+            const pageHeight = pageSize.height ? pageSize.height : pageSize.getHeight();
+            const pageWidth = pageSize.width ? pageSize.width : pageSize.getWidth();
+            doc.text("This is computer generated documents, does not require any signature", pageWidth / 2, pageHeight - 10, { align: "center" });
+            doc.text(`Page ${doc.internal.pages.length - 1}`, pageWidth - 14, pageHeight - 10, { align: "right" });
+          }
         });
 
         doc.setFontSize(8);
@@ -276,7 +303,16 @@ export default function Reports() {
           body: [],
           startY: (doc as any).lastAutoTable.finalY + 10,
           theme: "plain",
-          headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: "bold" }
+          headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: "bold" },
+          didDrawPage: (data) => {
+            doc.setFontSize(8);
+            doc.setTextColor(150);
+            const pageSize = doc.internal.pageSize;
+            const pageHeight = pageSize.height ? pageSize.height : pageSize.getHeight();
+            const pageWidth = pageSize.width ? pageSize.width : pageSize.getWidth();
+            doc.text("This is computer generated documents, does not require any signature", pageWidth / 2, pageHeight - 10, { align: "center" });
+            doc.text(`Page ${doc.internal.pages.length - 1}`, pageWidth - 14, pageHeight - 10, { align: "right" });
+          }
         });
 
       } else if (activeTab === "cash-flow") {
@@ -304,7 +340,16 @@ export default function Reports() {
             [{ content: "Cash at End of Period", styles: { fontStyle: "bold" } }, { content: formatCurrency(reportsData.closingCash), styles: { fontStyle: "bold" } }]
           ],
           startY: 50,
-          theme: "striped"
+          theme: "striped",
+          didDrawPage: (data) => {
+            doc.setFontSize(8);
+            doc.setTextColor(150);
+            const pageSize = doc.internal.pageSize;
+            const pageHeight = pageSize.height ? pageSize.height : pageSize.getHeight();
+            const pageWidth = pageSize.width ? pageSize.width : pageSize.getWidth();
+            doc.text("This is computer generated documents, does not require any signature", pageWidth / 2, pageHeight - 10, { align: "center" });
+            doc.text(`Page ${doc.internal.pages.length - 1}`, pageWidth - 14, pageHeight - 10, { align: "right" });
+          }
         });
 
       } else {

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db, getNextVoucherNo, updateVoucherSequence, getAccountBalance, getAccountSummary } from "../db/database";
+import { db, getNextVoucherNo, incrementVoucherNo, updateVoucherSequence, getAccountBalance, getAccountSummary } from "../db/database";
 import { formatCurrency, cn } from "../lib/utils";
 import { format } from "date-fns";
 import { 
@@ -15,7 +15,8 @@ import {
   X,
   Pencil,
   Upload,
-  Printer
+  Printer,
+  RefreshCw
 } from "lucide-react";
 import { Transaction, TransactionType } from "../types";
 import Papa from "papaparse";
@@ -139,8 +140,11 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
 
     let txs = await collection.toArray();
     
-    // Reverse sort by date
-    txs.sort((a, b) => b.date - a.date);
+    // Chronological sort: oldest to newest
+    txs.sort((a, b) => {
+      if (a.date !== b.date) return a.date - b.date;
+      return (a.voucherNo || 0) - (b.voucherNo || 0);
+    });
 
     if (filterAccountId) {
       txs = txs.filter(t => t.fromAccountId === filterAccountId || t.toAccountId === filterAccountId);
@@ -240,7 +244,7 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
 
             if (fromId !== undefined && toId !== undefined) {
               const vType = type === "INCOME" ? "RV" : type === "EXPENSE" ? "PV" : "JV";
-              const vNo = await getNextVoucherNo(vType);
+              const vNo = await incrementVoucherNo(vType as any);
 
               await db.transactions.add({
                 amount,
@@ -256,8 +260,6 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
                 syncStatus: "pending",
                 isDeleted: 0
               });
-
-              await updateVoucherSequence(vType, vNo);
             }
           }
           alert("Import completed successfully!");
@@ -277,10 +279,9 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
     });
   };
 
-  const handlePrintVoucher = (tx: Transaction) => {
-    const doc = new jsPDF() as any;
+  const renderVoucherContent = (doc: any, tx: Transaction) => {
     const voucherLabel = tx.voucherType && tx.voucherNo 
-      ? `${tx.voucherType}-${String(tx.voucherNo).padStart(6, "0")}`
+      ? `${tx.voucherType}-${String(tx.voucherNo).padStart(4, "0")}`
       : "N/A";
 
     const profileName = settings?.profileName || "AL-BAQARAH DYEING AND PRINTING INDUSTRY LTD";
@@ -298,11 +299,12 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
     doc.setFontSize(14);
     doc.text(voucherTitle, 105, 30, { align: "center" });
     
-    doc.setLineWidth(0.5);
+    doc.setLineWidth(0.3);
+    doc.setDrawColor(200);
     doc.line(14, 34, 196, 34);
 
     // 2. Voucher Metadata Section
-    doc.setFontSize(10);
+    doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
     
     const leftMargin = 14;
@@ -311,57 +313,68 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
 
     // Voucher Number & Date Row
     doc.setFont("helvetica", "bold");
-    doc.text(`${tx.voucherType !== "PV" ? "Receipt" : "Payment"}_Vr No : ${voucherLabel}`, leftMargin, currentY);
-    doc.text(`Entry Date : ${format(tx.date, "dd-MMM-yy")}`, rightSideX, currentY);
+    doc.text(`Voucher No : ${voucherLabel}`, leftMargin, currentY);
+    doc.text(`Date : ${format(tx.date, "dd-MMM-yyyy")}`, rightSideX, currentY);
     
     currentY += 10;
     
     // Account Details
-    doc.setFont("helvetica", "normal");
-    const accountLabelTop = tx.voucherType === "RV" ? "Receipt Cash/Bank A/c :" : "Payment Cash/Bank A/c :";
-    doc.text(accountLabelTop, leftMargin, currentY);
-    doc.setFont("helvetica", "bold");
-    doc.text(getAccountName(tx.toAccountId), leftMargin, currentY + 5);
+    // RV: Receipt Source = fromAccountId (Credit), Dest = toAccountId (Debit/Cash)
+    // PV: Payment Source = fromAccountId (Credit/Cash), Dest = toAccountId (Debit/Expense)
+    
+    const cashBankLabel = tx.voucherType === "RV" ? "Receipt Cash/Bank A/c :" : "Payment Cash/Bank A/c :";
+    const cashBankAccount = tx.voucherType === "RV" ? tx.toAccountId : tx.fromAccountId;
+    
+    const partyLabel = tx.voucherType === "RV" ? "Received From :" : "Paid To :";
+    const partyAccount = tx.voucherType === "RV" ? tx.fromAccountId : tx.toAccountId;
 
     doc.setFont("helvetica", "normal");
-    const accountLabelBottom = tx.voucherType === "RV" ? "Receipt From :" : "Paid To :";
-    doc.text(accountLabelBottom, rightSideX, currentY);
+    doc.text(cashBankLabel, leftMargin, currentY);
     doc.setFont("helvetica", "bold");
-    doc.text(getAccountName(tx.fromAccountId), rightSideX, currentY + 5);
+    doc.text(getAccountName(cashBankAccount), leftMargin, currentY + 5);
+
+    doc.setFont("helvetica", "normal");
+    doc.text(partyLabel, rightSideX, currentY);
+    doc.setFont("helvetica", "bold");
+    doc.text(getAccountName(partyAccount), rightSideX, currentY + 5);
 
     currentY += 15;
 
     // Transaction Details / Note
     if (tx.note) {
       doc.setFont("helvetica", "normal");
-      doc.text("Transaction Details :", leftMargin, currentY);
+      doc.text("Narration / Description :", leftMargin, currentY);
       doc.setFont("helvetica", "italic");
-      doc.text(tx.note, leftMargin, currentY + 5, { maxWidth: 180 });
-      currentY += 15;
+      const lines = doc.splitTextToSize(tx.note, 180);
+      doc.text(lines, leftMargin, currentY + 5);
+      currentY += (lines.length * 5) + 10;
+    } else {
+      currentY += 5;
     }
 
+    doc.setDrawColor(220);
     doc.line(14, currentY - 5, 196, currentY - 5);
 
     // 3. GL Accounts Table
     autoTable(doc, {
       startY: currentY,
-      head: [["SL#", "GL_Account_Head", "Debit", "Credit"]],
+      head: [["SL#", "GL Account Head / Description", "Debit (DR)", "Credit (CR)"]],
       body: [
         ["1", getAccountName(tx.toAccountId), formatCurrency(tx.amount), ""],
         ["2", getAccountName(tx.fromAccountId), "", formatCurrency(tx.amount)],
       ],
       foot: [
-        ["", "Total", formatCurrency(tx.amount), formatCurrency(tx.amount)]
+        ["", "Grand Total", formatCurrency(tx.amount), formatCurrency(tx.amount)]
       ],
       theme: "grid",
       headStyles: { 
-        fillColor: [248, 250, 252], 
+        fillColor: [241, 245, 249], 
         textColor: [30, 41, 59], 
         fontStyle: "bold",
         lineWidth: 0.1
       },
       styles: { 
-        fontSize: 9,
+        fontSize: 8,
         cellPadding: 3,
       },
       columnStyles: {
@@ -378,31 +391,91 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
     });
 
     // 4. Signature Section (Footer)
-    const finalY = (doc as any).lastAutoTable.finalY + 40;
+    const tableFinalY = (doc as any).lastAutoTable.finalY || currentY + 30;
+    const sigY = Math.max(tableFinalY + 40, 270);
     
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
+    doc.setFontSize(8);
     
     // Left
-    doc.line(14, finalY, 60, finalY);
-    doc.text("Prepared By", 14, finalY + 5);
+    doc.line(14, sigY, 60, sigY);
+    doc.text("Prepared By", 14, sigY + 4);
     
     // Center
-    doc.line(82, finalY, 128, finalY);
-    doc.text("Checked By", 82, finalY + 5);
+    doc.line(82, sigY, 128, sigY);
+    doc.text("Cashier / Checked By", 82, sigY + 4);
     
     // Right
-    doc.line(150, finalY, 196, finalY);
-    doc.text("Approved By", 150, finalY + 5);
+    doc.line(150, sigY, 196, sigY);
+    doc.text("Authorised Signatory", 150, sigY + 4);
 
     // Disclaimer
-    doc.setFontSize(8);
+    doc.setFontSize(7);
     doc.setTextColor(150);
     doc.setFont("helvetica", "italic");
-    doc.text("This is a computer-generated document and does not require any signature.", 105, 285, { align: "center" });
+    doc.text("This is computer generated documents, does not require any signature", 105, 290, { align: "center" });
+  };
 
+  const handlePrintVoucher = (tx: Transaction) => {
+    const doc = new jsPDF() as any;
+    renderVoucherContent(doc, tx);
+    const voucherLabel = tx.voucherType && tx.voucherNo 
+      ? `${tx.voucherType}-${String(tx.voucherNo).padStart(4, "0")}`
+      : "N/A";
     doc.save(`Voucher_${voucherLabel}.pdf`);
   };
+
+  const [isPrintingBulk, setIsPrintingBulk] = useState(false);
+
+  const handleBulkPrintVouchers = async () => {
+    if (!transactions || transactions.length === 0) {
+      alert("No transactions found in current filtered view to print.");
+      return;
+    }
+
+    const typeToPrint = filterVoucherType;
+    let txsToPrint = [...transactions];
+    
+    if (typeToPrint === "ALL") {
+      const confirmAll = confirm(`You are about to print ALL ${transactions.length} vouchers in the current list. Continue?`);
+      if (!confirmAll) return;
+    } else {
+      txsToPrint = transactions.filter(tx => tx.voucherType === typeToPrint);
+      if (txsToPrint.length === 0) {
+        alert(`No ${typeToPrint} vouchers found in the current list.`);
+        return;
+      }
+    }
+
+    setIsPrintingBulk(true);
+    
+    // Small delay to allow UI to update if we had a loading spinner
+    await new Promise(r => setTimeout(r, 100));
+
+    try {
+      // Sort by voucher number (ascending) for logical order in PDF
+      txsToPrint.sort((a, b) => {
+        if (a.voucherType !== b.voucherType) return (a.voucherType || "").localeCompare(b.voucherType || "");
+        return (a.voucherNo || 0) - (b.voucherNo || 0);
+      });
+
+      const doc = new jsPDF() as any;
+      
+      for (let i = 0; i < txsToPrint.length; i++) {
+        if (i > 0) doc.addPage();
+        renderVoucherContent(doc, txsToPrint[i]);
+      }
+      
+      const fileName = typeToPrint === "ALL" ? "All_Vouchers" : `${typeToPrint}_Vouchers`;
+      doc.save(`${fileName}_${format(new Date(), "yyyyMMdd_HHmm")}.pdf`);
+    } catch (error) {
+      console.error("Bulk print failed", error);
+      alert("An error occurred during bulk printing.");
+    } finally {
+      setIsPrintingBulk(false);
+    }
+  };
+
 
   return (
     <div className="space-y-6">
@@ -467,6 +540,19 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
           >
             <Download size={16} />
             <span className="hidden sm:inline">Export</span>
+          </button>
+          <button 
+            onClick={handleBulkPrintVouchers}
+            disabled={isPrintingBulk}
+            className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50"
+            title="Bulk Print Vouchers as PDF"
+          >
+            {isPrintingBulk ? (
+              <RefreshCw size={16} className="animate-spin" />
+            ) : (
+              <Printer size={16} />
+            )}
+            <span className="hidden sm:inline">{isPrintingBulk ? "Printing..." : "Bulk Print"}</span>
           </button>
           <button 
             onClick={openAddModal}
@@ -760,9 +846,8 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
                 });
                 await updateVoucherSequence(vType, vNoInput);
               } else {
-                // Fetch fresh vNo to prevent collisions if multiple tabs are open, 
-                // but prefer the suggested one if it's still valid
-                const vNo = await getNextVoucherNo(vType);
+                // Fetch fresh vNo and increment atomically to prevent collisions and reuse
+                const vNo = await incrementVoucherNo(vType);
 
                 await db.transactions.add({
                   amount,
@@ -778,8 +863,6 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
                   syncStatus: "pending",
                   isDeleted: 0
                 });
-
-                await updateVoucherSequence(vType, vNo);
               }
               closeModals();
             }} className="p-6 space-y-4">

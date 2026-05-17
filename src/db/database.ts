@@ -10,7 +10,7 @@ export class UniversalLedgerDB extends Dexie {
   constructor() {
     super("UniversalLedgerDB");
     
-    this.version(6).stores({
+    this.version(7).stores({
       accounts: "++id, name, type, syncStatus, isDeleted",
       transactions: "++id, fromAccountId, toAccountId, type, voucherType, voucherNo, date, syncStatus, isDeleted",
       settings: "id",
@@ -39,24 +39,50 @@ export async function getNextVoucherNo(type: "RV" | "PV" | "JV" | "CV") {
     return seq.lastNo + 1;
   }
 
-  const lastTx = await db.transactions
+  // Handle initialization: scan transactions including deleted ones
+  const lastTxs = await db.transactions
     .where("voucherType")
     .equals(type)
     .toArray();
   
-  const currentMax = lastTx.length > 0 ? Math.max(...lastTx.map(t => t.voucherNo || 0)) : 0;
+  const currentMax = lastTxs.length > 0 ? Math.max(...lastTxs.map(t => t.voucherNo || 0)) : 0;
   
-  // Initialize sequence
-  await db.sequences.put({ type, lastNo: currentMax });
+  // Try to initialize sequence if not exists (someone else might have done it)
+  try {
+    await db.sequences.add({ type, lastNo: currentMax });
+  } catch (e) {
+    // Already exists, just ignore
+  }
   
   return currentMax + 1;
 }
 
+export async function incrementVoucherNo(type: "RV" | "PV" | "JV" | "CV"): Promise<number> {
+  return await db.transaction('rw', [db.sequences, db.transactions], async () => {
+    let seq = await db.sequences.get(type);
+    
+    if (!seq) {
+      const lastTxs = await db.transactions
+        .where("voucherType")
+        .equals(type)
+        .toArray();
+      const currentMax = lastTxs.length > 0 ? Math.max(...lastTxs.map(t => t.voucherNo || 0)) : 0;
+      seq = { type, lastNo: currentMax };
+    }
+    
+    const next = seq.lastNo + 1;
+    await db.sequences.put({ type, lastNo: next });
+    return next;
+  });
+}
+
 export async function updateVoucherSequence(type: string, voucherNo: number) {
-  const seq = await db.sequences.get(type);
-  if (!seq || voucherNo > seq.lastNo) {
-    await db.sequences.put({ type, lastNo: voucherNo });
-  }
+  await db.transaction('rw', db.sequences, async () => {
+    const seq = await db.sequences.get(type);
+    if (!seq || voucherNo > seq.lastNo) {
+      await db.sequences.put({ type, lastNo: voucherNo });
+    }
+  });
 }
 
 // Test the connection and check if IndexedDB is available
