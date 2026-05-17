@@ -845,12 +845,12 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
                     onClick={() => !editingTransaction && setTxType(t)}
                     disabled={!!editingTransaction}
                     className={cn(
-                      "flex-1 py-2 text-xs font-bold rounded-lg transition-all",
+                      "flex-1 py-2 text-xs font-bold rounded-lg transition-all uppercase",
                       txType === t ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700",
                       editingTransaction && txType !== t ? "opacity-30" : ""
                     )}
                   >
-                    {t}
+                    {t === "EXPENSE" ? "Payment" : t === "INCOME" ? "Receipt" : "Contra/Other"}
                   </button>
                 ))}
               </div>
@@ -957,9 +957,9 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
               <div className="space-y-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-slate-700">
-                    {txType === "EXPENSE" ? "Source (From Account)" : 
-                     txType === "INCOME" ? "Source (Income Category)" : 
-                     "Source (From Account)"}
+                    {txType === "EXPENSE" ? "Cash/Bank Source (Credit)" : 
+                     txType === "INCOME" ? "Income Source (Credit)" : 
+                     "Source Account (Credit)"}
                   </label>
                   <select 
                     name="fromAccountId" 
@@ -984,9 +984,9 @@ export default function TransactionsList({ accountId, isAddingExternal, onCloseE
 
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-slate-700">
-                    {txType === "EXPENSE" ? "Destination (Expense Category)" : 
-                     txType === "INCOME" ? "Destination (To Account)" : 
-                     "Destination (To Account)"}
+                    {txType === "EXPENSE" ? "Expense/Party Destination (Debit)" : 
+                     txType === "INCOME" ? "Cash/Bank Destination (Debit)" : 
+                     "Destination Account (Debit)"}
                   </label>
                   <select 
                     name="toAccountId" 
