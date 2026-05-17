@@ -2,11 +2,12 @@ import React, { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, getAccountBalance } from "../db/database";
 import { formatCurrency, cn, savePDF } from "../lib/utils";
-import { Plus, Wallet, CreditCard, Banknote, Landmark, Trash2, X, ArrowUpRight, ArrowDownLeft, Pencil, Download, ExternalLink, ArrowLeftRight, Loader2, ChevronRight } from "lucide-react";
+import { Plus, Wallet, CreditCard, Banknote, Landmark, Trash2, X, ArrowUpRight, ArrowDownLeft, Pencil, Download, ExternalLink, ArrowLeftRight, Loader2, ChevronRight, Upload } from "lucide-react";
 import TransactionsList from "./TransactionsList";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { format } from "date-fns";
+import Papa from "papaparse";
 
 interface AccountsListProps {
   isAddingExternal?: boolean;
@@ -72,6 +73,8 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
   
   const settings = useLiveQuery(() => db.settings.get("app-settings"));
 
@@ -80,13 +83,33 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
     const accountsWithBalance = await Promise.all(
       list.map(async (acc) => {
         const balance = (acc.initialBalance || 0) + await getAccountBalance(acc.id!, settings?.endDate);
+        
+        // Logical classification for Assets & Liabilities
         let effectiveType = acc.type;
         if (acc.type === "ASSET" || acc.type === "LIABILITY") {
           effectiveType = balance >= 0 ? "ASSET" : "LIABILITY";
         }
+
+        // Presentation logic: 
+        // 1. Income (Credit) raw is negative, should be positive (+).
+        // 2. Expense (Debit) raw is positive, should be negative (-).
+        // 3. Asset (Debit) raw is positive, should be positive (+).
+        // 4. Liability (Credit) raw is negative, should be positive (+) magnitude typically.
+        let presentationBalance = balance;
+        if (acc.type === "INCOME") {
+          presentationBalance = balance * -1; // -100 raw -> 100 shown
+        } else if (acc.type === "EXPENSE") {
+          presentationBalance = balance * -1; // 100 raw -> -100 shown
+        } else if (acc.type === "LIABILITY" || acc.type === "EQUITY") {
+          // If it's a credit balance (negative raw), show as positive magnitude
+          // Unless it's an asset-like liability (positive raw)
+          presentationBalance = balance < 0 ? balance * -1 : balance;
+        }
+
         return {
           ...acc,
-          currentBalance: balance,
+          currentBalance: balance, // keep raw for internal logic
+          presentationBalance,
           effectiveType
         };
       })
@@ -302,6 +325,80 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
     }
   };
 
+  const handleExportCSV = () => {
+    if (!accounts || accounts.length === 0) return;
+    const data = accounts.map(a => ({
+      Name: a.name,
+      Type: a.type,
+      InitialBalance: a.initialBalance,
+      Color: a.color || "#3b82f6"
+    }));
+    const csv = Papa.unparse(data);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `accounts_${format(new Date(), "yyyy-MM-dd")}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        try {
+          const rows = results.data as any[];
+          const existingAccounts = new Map((accounts || []).map(a => [a.name.toLowerCase(), a]));
+
+          for (const row of rows) {
+            const name = row.Name || row.name;
+            const type = (row.Type || row.type || "ASSET").toUpperCase() as any;
+            const initialBalance = parseFloat(row.InitialBalance || row.initialBalance || "0");
+            const color = row.Color || row.color || "#3b82f6";
+
+            if (!name) continue;
+
+            const existing = existingAccounts.get(name.toLowerCase());
+            if (existing) {
+              await db.accounts.update(existing.id!, {
+                type,
+                initialBalance,
+                color,
+                updatedAt: Date.now()
+              });
+            } else {
+              await db.accounts.add({
+                name,
+                type,
+                initialBalance,
+                color,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                syncStatus: "pending",
+                isDeleted: 0
+              });
+            }
+          }
+          alert("Accounts imported successfully!");
+        } catch (err) {
+          console.error("Account import failed", err);
+          alert("Import failed.");
+        } finally {
+          setIsImporting(false);
+          if (fileInputRef.current) fileInputRef.current.value = "";
+        }
+      }
+    });
+  };
+
   const selectedAccountDetails = accounts?.find(a => a.id === selectedAccountId);
 
   return (
@@ -312,6 +409,30 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
           <p className="text-sm text-slate-500">Manage your ledger accounts and tracking categories.</p>
         </div>
         <div className="flex items-center gap-2">
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleImportCSV} 
+            accept=".csv" 
+            className="hidden" 
+          />
+          <button 
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isImporting}
+            className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-bold hover:bg-slate-50 transition-colors disabled:opacity-50"
+            title="Import Accounts from CSV"
+          >
+            <Upload size={16} />
+            <span className="hidden sm:inline">Import</span>
+          </button>
+          <button 
+            onClick={handleExportCSV}
+            className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-bold hover:bg-slate-50 transition-colors shadow-sm"
+            title="Export Accounts to CSV"
+          >
+            <Download size={16} />
+            <span className="hidden sm:inline">Export</span>
+          </button>
           <button 
             onClick={handleDownloadAllLedgers}
             disabled={isGeneratingBulk}
@@ -399,8 +520,11 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
 
                 {/* Balance */}
                 <div className="col-span-3 md:col-span-2 text-right">
-                  <span className="text-base md:text-lg font-black text-slate-900 tracking-tight">
-                    {formatCurrency(account.currentBalance)}
+                  <span className={cn(
+                    "text-base md:text-lg font-black tracking-tight",
+                    account.presentationBalance < 0 ? "text-red-600" : "text-slate-900"
+                  )}>
+                    {formatCurrency(account.presentationBalance)}
                   </span>
                 </div>
 
@@ -483,8 +607,11 @@ export default function AccountsList({ isAddingExternal, onCloseExternal }: Acco
                 </div>
                 <h2 className="text-3xl font-black mb-1">{selectedAccountDetails.name}</h2>
                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-                  <div className="text-4xl font-black tracking-tighter">
-                    {formatCurrency(selectedAccountDetails.currentBalance)}
+                  <div className={cn(
+                    "text-4xl font-black tracking-tighter",
+                    selectedAccountDetails.presentationBalance < 0 ? "text-red-100" : "text-white"
+                  )}>
+                    {formatCurrency(selectedAccountDetails.presentationBalance)}
                   </div>
                   <button 
                     onClick={() => handleDownloadSingleLedger(selectedAccountDetails)}

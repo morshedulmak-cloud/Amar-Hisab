@@ -5,16 +5,23 @@ export class UniversalLedgerDB extends Dexie {
   accounts!: Table<Account>;
   transactions!: Table<Transaction>;
   settings!: Table<AppSettings>;
+  sequences!: Table<Sequence>;
 
   constructor() {
     super("UniversalLedgerDB");
     
-    this.version(5).stores({
+    this.version(6).stores({
       accounts: "++id, name, type, syncStatus, isDeleted",
       transactions: "++id, fromAccountId, toAccountId, type, voucherType, voucherNo, date, syncStatus, isDeleted",
-      settings: "id"
+      settings: "id",
+      sequences: "type"
     });
   }
+}
+
+export interface Sequence {
+  type: string;
+  lastNo: number;
 }
 
 export interface AppSettings {
@@ -26,14 +33,30 @@ export interface AppSettings {
 
 export const db = new UniversalLedgerDB();
 
-export async function getNextVoucherNo(type: "RV" | "PV" | "JV") {
+export async function getNextVoucherNo(type: "RV" | "PV" | "JV" | "CV") {
+  const seq = await db.sequences.get(type);
+  if (seq) {
+    return seq.lastNo + 1;
+  }
+
   const lastTx = await db.transactions
     .where("voucherType")
     .equals(type)
-    .reverse()
-    .first();
+    .toArray();
   
-  return (lastTx?.voucherNo || 0) + 1;
+  const currentMax = lastTx.length > 0 ? Math.max(...lastTx.map(t => t.voucherNo || 0)) : 0;
+  
+  // Initialize sequence
+  await db.sequences.put({ type, lastNo: currentMax });
+  
+  return currentMax + 1;
+}
+
+export async function updateVoucherSequence(type: string, voucherNo: number) {
+  const seq = await db.sequences.get(type);
+  if (!seq || voucherNo > seq.lastNo) {
+    await db.sequences.put({ type, lastNo: voucherNo });
+  }
 }
 
 // Test the connection and check if IndexedDB is available

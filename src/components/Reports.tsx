@@ -11,7 +11,7 @@ import autoTable from "jspdf-autotable";
 type ReportTab = "charts" | "trial-balance" | "income-statement" | "balance-sheet" | "receipt-payment" | "cash-flow";
 
 export default function Reports() {
-  const [activeTab, setActiveTab] = useState<ReportTab>("charts");
+  const [activeTab, setActiveTab] = useState<ReportTab>("trial-balance");
   const [isGenerating, setIsGenerating] = useState(false);
 
   const settings = useLiveQuery(() => db.settings.get("app-settings"));
@@ -77,11 +77,15 @@ export default function Reports() {
       .filter(a => a.type === "INCOME")
       .reduce((sum, a) => sum + a.balance, 0);
 
-    const totalExpense = Math.abs(accountBalances
+    // Filter expenses and sum their presentation balance (which is negative)
+    // We want the totalExpense as a positive magnitude for the formula totalIncome - totalExpense
+    const expensesSum = accountBalances
       .filter(a => a.type === "EXPENSE")
-      .reduce((sum, a) => sum + a.balance, 0));
+      .reduce((sum, a) => sum + a.balance, 0);
+    
+    const totalExpense = Math.abs(expensesSum);
 
-    const netProfit = totalIncome - totalExpense;
+    const netProfit = totalIncome + expensesSum; // Since expensesSum is negative, this is Income - Expense magnitude
 
     const totalAssets = accountBalances
       .filter(a => a.effectiveType === "ASSET")
@@ -173,7 +177,7 @@ export default function Reports() {
         doc.text("Income Statement (P&L)", 14, 45);
 
         const incomeBody = reportsData.accountBalances.filter(a => a.type === "INCOME").map(acc => [acc.name, formatCurrency(acc.balance)]);
-        const expenseBody = reportsData.accountBalances.filter(a => a.type === "EXPENSE").map(acc => [acc.name, formatCurrency(Math.abs(acc.balance))]);
+        const expenseBody = reportsData.accountBalances.filter(a => a.type === "EXPENSE").map(acc => [acc.name, formatCurrency(acc.balance)]);
 
         autoTable(doc, {
           head: [["Revenue / Income", "Amount"]],
@@ -185,7 +189,7 @@ export default function Reports() {
 
         autoTable(doc, {
           head: [["Operating Expenses", "Amount"]],
-          body: [...expenseBody, [{ content: "Total Expenses", styles: { fontStyle: "bold" } }, { content: formatCurrency(reportsData.totalExpense), styles: { fontStyle: "bold", textColor: [239, 68, 68] } }]],
+          body: [...expenseBody, [{ content: "Total Expenses", styles: { fontStyle: "bold" } }, { content: formatCurrency(reportsData.totalExpense * -1), styles: { fontStyle: "bold", textColor: [239, 68, 68] } }]],
           startY: (doc as any).lastAutoTable.finalY + 10,
           theme: "plain",
           headStyles: { textColor: [239, 68, 68], fontStyle: "bold" }
@@ -241,7 +245,7 @@ export default function Reports() {
         doc.text("Receipt & Payment Statement", 14, 45);
 
         const receiptBody = reportsData.accountBalances.filter(a => a.type === "INCOME").map(acc => [acc.name, formatCurrency(acc.balance)]);
-        const paymentBody = reportsData.accountBalances.filter(a => a.type === "EXPENSE").map(acc => [acc.name, formatCurrency(Math.abs(acc.balance))]);
+        const paymentBody = reportsData.accountBalances.filter(a => a.type === "EXPENSE").map(acc => [acc.name, formatCurrency(acc.balance)]);
 
         autoTable(doc, {
           head: [["Opening Cash & Bank Balance", formatCurrency(reportsData.openingCash)]],
@@ -430,15 +434,6 @@ export default function Reports() {
           </button>
           <div className="flex bg-slate-100 p-1 rounded-xl">
             <button 
-              onClick={() => setActiveTab("charts")}
-              className={cn(
-                "px-4 py-2 text-sm font-bold rounded-lg transition-all flex items-center gap-2",
-                activeTab === "charts" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-900"
-              )}
-            >
-              <PieChart size={16} /> Dashboard
-            </button>
-            <button 
               onClick={() => setActiveTab("trial-balance")}
               className={cn(
                 "px-4 py-2 text-sm font-bold rounded-lg transition-all flex items-center gap-2",
@@ -486,80 +481,6 @@ export default function Reports() {
           </div>
         </div>
       </div>
-
-      {activeTab === "charts" && (
-        <>
-          {/* Monthly Summary Chart */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <h4 className="font-semibold mb-6">Income vs Expense (Last 6 Months)</h4>
-            <div className="h-[400px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={monthlyData || []}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#94a3b8" }} dy={10} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#94a3b8" }} />
-                  <Tooltip 
-                    cursor={{ fill: '#f8fafc' }}
-                    contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0" }}
-                  />
-                  <Legend verticalAlign="top" height={36}/>
-                  <Bar dataKey="income" name="Income" fill="#10b981" radius={[4, 4, 0, 0]} barSize={32} />
-                  <Bar dataKey="expense" name="Expense" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={32} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-              <h4 className="font-semibold mb-6">Monthly Performance</h4>
-              <div className="space-y-4">
-                {(monthlyData || []).slice().reverse().map(data => (
-                  <div key={data.month} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100">
-                    <div>
-                      <p className="font-bold text-slate-900">{data.month}</p>
-                      <p className="text-xs text-slate-500">Net Surplus/Deficit</p>
-                    </div>
-                    <div className={cn(
-                      "text-lg font-bold",
-                      data.profit >= 0 ? "text-emerald-600" : "text-red-600"
-                    )}>
-                      {formatCurrency(data.profit)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-              <h4 className="font-semibold mb-6">Top Categories by Volume</h4>
-              <div className="space-y-1">
-                {(categoryMix || []).map(cat => {
-                  const total = cat.income + cat.expense;
-                  return (
-                    <div key={cat.name} className="py-3 group">
-                      <div className="flex justify-between text-sm mb-2">
-                        <span className="font-medium text-slate-700">{cat.name}</span>
-                        <span className="font-bold text-slate-900">{formatCurrency(total)}</span>
-                      </div>
-                      <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden flex">
-                        <div 
-                          className="bg-emerald-500 h-full transition-all" 
-                          style={{ width: `${(cat.income / total) * 100}%` }} 
-                        />
-                        <div 
-                          className="bg-red-500 h-full transition-all" 
-                          style={{ width: `${(cat.expense / total) * 100}%` }} 
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </>
-      )}
 
       {activeTab === "trial-balance" && reportsData && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -657,12 +578,12 @@ export default function Reports() {
                 {reportsData.accountBalances.filter(a => a.type === "EXPENSE").map(acc => (
                   <div key={acc.id} className="flex justify-between items-center text-slate-700">
                     <span>{acc.name}</span>
-                    <span className="font-mono text-red-600">{formatCurrency(Math.abs(acc.balance))}</span>
+                    <span className="font-mono text-red-600">{formatCurrency(acc.balance)}</span>
                   </div>
                 ))}
                 <div className="flex justify-between items-center pt-4 border-t border-slate-100 font-bold text-slate-900">
                   <span>Total Expenses</span>
-                  <span className="font-mono text-red-600">{formatCurrency(reportsData.totalExpense)}</span>
+                  <span className="font-mono text-red-600">-{formatCurrency(reportsData.totalExpense)}</span>
                 </div>
               </div>
             </section>
@@ -801,7 +722,7 @@ export default function Reports() {
                 {reportsData.accountBalances.filter(a => a.type === "EXPENSE").map(acc => (
                   <div key={acc.id} className="flex justify-between items-center">
                     <span className="text-slate-600 text-sm font-medium">{acc.name}</span>
-                    <span className="font-mono text-red-600 font-bold">{formatCurrency(Math.abs(acc.balance))}</span>
+                    <span className="font-mono text-red-600 font-bold">{formatCurrency(acc.balance)}</span>
                   </div>
                 ))}
                 {reportsData.accountBalances.filter(a => a.type === "EXPENSE").length === 0 && (
@@ -809,7 +730,7 @@ export default function Reports() {
                 )}
                 <div className="pt-4 mt-4 border-t border-slate-100 flex justify-between items-center font-black text-slate-900">
                   <span className="text-sm">Total Payments</span>
-                  <span className="font-mono text-red-600">{formatCurrency(reportsData.totalExpense)}</span>
+                  <span className="font-mono text-red-600">-{formatCurrency(reportsData.totalExpense)}</span>
                 </div>
               </div>
             </div>

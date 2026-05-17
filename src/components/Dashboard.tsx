@@ -213,7 +213,7 @@ export default function Dashboard() {
               <ArrowDownLeft size={18} />
             </div>
           </div>
-          <h3 className="text-2xl font-bold text-red-600">{formatCurrency(stats?.expense || 0)}</h3>
+          <h3 className="text-2xl font-bold text-red-600">-{formatCurrency(stats?.expense || 0)}</h3>
         </div>
       </div>
 
